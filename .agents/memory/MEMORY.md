@@ -1,0 +1,3 @@
+- [PackSMP Bridge architecture](packsmp-bridge.md) — api-server runs mineflayer+discord.js; dev uses tsx (not esbuild — OOM); OpenAPI body schemas must use entity names not operation names
+- [API server build](api-server-build.md) — esbuild crashes OOM bundling mineflayer+discord.js; dev script uses `tsx src/index.ts` directly; prod build still uses esbuild (externals list handles native modules)
+- [Admin panel auth seeding](admin-panel-auth.md) — admin_password_hash must be seeded in system_config table on first run; default password 12122012; login returns JWT stored in localStorage

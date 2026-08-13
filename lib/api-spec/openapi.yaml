@@ -1,0 +1,730 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.2.0
+  description: PackSMP Bridge API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: dashboard
+    description: Dashboard statistics
+  - name: verifications
+    description: Account verifications
+  - name: messages
+    description: Private messages
+  - name: config
+    description: System configuration
+  - name: logs
+    description: System logs
+  - name: status
+    description: System status
+  - name: commands
+    description: Admin commands
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminCredentials"
+      responses:
+        "200":
+          description: Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthToken"
+        "401":
+          description: Invalid password
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: User info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  /auth/password:
+    put:
+      operationId: changePassword
+      tags: [auth]
+      summary: Change admin password
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChange"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get dashboard statistics
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /verifications:
+    get:
+      operationId: getVerifications
+      tags: [verifications]
+      summary: List all verifications
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of verifications
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationList"
+
+  /verifications/{discordId}:
+    delete:
+      operationId: deleteVerification
+      tags: [verifications]
+      summary: Remove verification
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: discordId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /messages:
+    get:
+      operationId: getMessages
+      tags: [messages]
+      summary: Get private messages
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageList"
+
+  /messages/{id}:
+    delete:
+      operationId: deleteMessage
+      tags: [messages]
+      summary: Delete message
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /config:
+    get:
+      operationId: getConfig
+      tags: [config]
+      summary: Get system configuration
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemConfig"
+    put:
+      operationId: updateConfig
+      tags: [config]
+      summary: Update configuration value
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigEntry"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /logs/system:
+    get:
+      operationId: getSystemLogs
+      tags: [logs]
+      summary: Get system logs
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: level
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogList"
+
+  /logs/chat:
+    get:
+      operationId: getChatLogs
+      tags: [logs]
+      summary: Get chat logs
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: source
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Chat logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatLogList"
+
+  /status:
+    get:
+      operationId: getStatus
+      tags: [status]
+      summary: Get system status
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStatus"
+
+  /commands/sync-restart:
+    post:
+      operationId: restartSync
+      tags: [commands]
+      summary: Restart sync
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Restarted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /commands/sync-stop:
+    post:
+      operationId: stopSync
+      tags: [commands]
+      summary: Stop sync
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /commands/bot-restart-mc:
+    post:
+      operationId: restartMcBot
+      tags: [commands]
+      summary: Restart Minecraft bot
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Restarting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /commands/bot-reconnect-discord:
+    post:
+      operationId: reconnectDiscordBot
+      tags: [commands]
+      summary: Reconnect Discord bot
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Reconnecting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /commands/maintenance:
+    post:
+      operationId: setMaintenance
+      tags: [commands]
+      summary: Toggle maintenance mode
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaintenanceState"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /commands/rcon-command:
+    post:
+      operationId: sendRconCommand
+      tags: [commands]
+      summary: Execute RCON command
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RconRequest"
+      responses:
+        "200":
+          description: Command result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RconResult"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    AdminCredentials:
+      type: object
+      properties:
+        password:
+          type: string
+      required: [password]
+
+    PasswordChange:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+      required: [currentPassword, newPassword]
+
+    AuthToken:
+      type: object
+      properties:
+        token:
+          type: string
+        expiresIn:
+          type: string
+      required: [token, expiresIn]
+
+    AdminUser:
+      type: object
+      properties:
+        role:
+          type: string
+        authenticated:
+          type: boolean
+      required: [role, authenticated]
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success]
+
+    ConfigEntry:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+      required: [key, value]
+
+    MaintenanceState:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+      required: [enabled]
+
+    RconRequest:
+      type: object
+      properties:
+        command:
+          type: string
+      required: [command]
+
+    RconResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        output:
+          type: ["string", "null"]
+      required: [success]
+
+    DashboardStats:
+      type: object
+      properties:
+        discord:
+          type: object
+          properties:
+            connected:
+              type: boolean
+            username:
+              type: ["string", "null"]
+            guilds:
+              type: number
+          required: [connected, guilds]
+        minecraft:
+          type: object
+          properties:
+            connected:
+              type: boolean
+            username:
+              type: string
+            host:
+              type: string
+            port:
+              type: number
+          required: [connected, username, host, port]
+        rcon:
+          type: object
+          properties:
+            connected:
+              type: boolean
+            host:
+              type: string
+            port:
+              type: number
+          required: [connected, host, port]
+        sync:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            maintenance:
+              type: boolean
+          required: [enabled, maintenance]
+        stats:
+          type: object
+          properties:
+            verifiedAccounts:
+              type: number
+            totalErrors:
+              type: number
+            pendingMessages:
+              type: number
+            uptimeSeconds:
+              type: number
+          required: [verifiedAccounts, totalErrors, pendingMessages, uptimeSeconds]
+        recentErrors:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+      required: [discord, minecraft, rcon, sync, stats, recentErrors]
+
+    VerificationEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        discordId:
+          type: string
+        mcNick:
+          type: ["string", "null"]
+        mcUuid:
+          type: ["string", "null"]
+        isVerified:
+          type: boolean
+        verifiedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required: [id, discordId, isVerified, createdAt]
+
+    VerificationList:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationEntry"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+      required: [rows, total, page, limit]
+
+    MessageEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        fromType:
+          type: string
+        fromDisplay:
+          type: string
+        toId:
+          type: string
+        message:
+          type: string
+        isDelivered:
+          type: boolean
+        deliveredAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required: [id, fromType, fromDisplay, toId, message, isDelivered, createdAt]
+
+    MessageList:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageEntry"
+        total:
+          type: number
+      required: [rows, total]
+
+    SystemConfig:
+      type: object
+      properties:
+        db:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value:
+                type: string
+              updatedAt:
+                type: string
+            required: [key, value, updatedAt]
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        runtime:
+          type: object
+          properties:
+            syncEnabled:
+              type: boolean
+            maintenanceMode:
+              type: boolean
+          required: [syncEnabled, maintenanceMode]
+      required: [db, env, runtime]
+
+    LogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        level:
+          type: string
+        service:
+          type: string
+        message:
+          type: string
+        context:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required: [id, level, service, message, createdAt]
+
+    LogList:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+        total:
+          type: number
+      required: [rows, total]
+
+    ChatLogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        author:
+          type: string
+        authorId:
+          type: ["string", "null"]
+        message:
+          type: string
+        createdAt:
+          type: string
+      required: [id, source, author, message, createdAt]
+
+    ChatLogList:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatLogEntry"
+        total:
+          type: number
+      required: [rows, total]
+
+    SystemStatus:
+      type: object
+      properties:
+        discord:
+          type: object
+          properties:
+            connected:
+              type: boolean
+            username:
+              type: ["string", "null"]
+            guilds:
+              type: number
+          required: [connected, guilds]
+        minecraft:
+          type: object
+          properties:
+            connected:
+              type: boolean
+            username:
+              type: string
+            host:
+              type: string
+            port:
+              type: number
+          required: [connected, username, host, port]
+        rcon:
+          type: object
+          properties:
+            connected:
+              type: boolean
+          required: [connected]
+        sync:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            maintenance:
+              type: boolean
+          required: [enabled, maintenance]
+        uptime:
+          type: number
+        timestamp:
+          type: string
+      required: [discord, minecraft, rcon, sync, uptime, timestamp]

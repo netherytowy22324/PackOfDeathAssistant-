@@ -1,0 +1,42 @@
+modules = ["nodejs-24", "python-base-3.13"]
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+DISCORD_GUILD_ID = "1532081537607143664"
+DISCORD_VERIFY_ROLE_ID = "1537158517176148119"
+JWT_SECRET = "8196a224001609aa375df444d09f3916b6efaf16051ca8d85eb9b1fbc55406b54a9aa28bc7816ec13b86a8f5310a2bed"
+MC_BOT_NICK = "PackSmpSyncBot"
+MC_HOST = "pl14.icehost.pl"
+MC_MODE = "offline"
+MC_PORT = "50062"
+RCON_HOST = "pl14.icehost.pl"
+RCON_PORT = "21001"
+DISCORD_CHAT_CHANNEL_ID = "1537148128208359464"
+
+[userenv.development]
+MC_BOT_ENABLED = "false"
+DISCORD_BOT_ENABLED = "false"
+
+[userenv.production]
+MC_BOT_ENABLED = "true"
+DISCORD_BOT_ENABLED = "true"
