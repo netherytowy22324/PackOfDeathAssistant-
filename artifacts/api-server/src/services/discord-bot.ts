@@ -862,6 +862,7 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
       { name: "=wynik-test-ftomularz", desc: "Alias testowego formularza wyniku rekrutacji" },
       { name: "=wynik-test-ostatniej-wyslij-na <id_kanału> <id_wiadomości>", desc: "Przekazuje wiadomość z wynikiem rekrutacji na wskazany kanał" },
       { name: "=wstrzymaj-ticket [powód]", desc: "Oznacza ticket jako wstrzymany i publikuje powód w kanale" },
+      { name: "=wznow-ticket", desc: "Oznacza wstrzymany ticket jako wznowiony" },
     ],
   },
   {
@@ -1127,6 +1128,50 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         allowedMentions: ticket.userId ? { users: [ticket.userId] } : { parse: [] },
       });
       await message.reply("✅ Ticket został oznaczony jako wstrzymany.");
+      break;
+    }
+
+    case "wznow-ticket": {
+      if (!hasRecruiterAccess(message)) {
+        await message.reply("❌ Ta komenda jest dostępna tylko dla rekruterów i administracji.");
+        return;
+      }
+      if (!message.guild || message.channel.isDMBased()) return;
+
+      const channel = message.channel as TextChannel;
+      const ticket = await detectTicketChannel(channel);
+      if (!ticket) {
+        await message.reply("❌ Tej komendy można użyć tylko na kanale ticketu.");
+        return;
+      }
+
+      const guildIcon = message.guild.iconURL({ extension: "png", size: 256 });
+      const ticketOwner = ticket.userId ? `<@${ticket.userId}>` : "Zgłaszający";
+      const resumeEmbed = new EmbedBuilder()
+        .setAuthor({ name: "PackSMP • Status ticketu" })
+        .setTitle("▶️ Ticket wznowiony")
+        .setColor(0x57F287)
+        .setDescription(
+          `${ticketOwner}\n\n` +
+          `Ten ticket został **wznowiony** przez administrację.\n\n` +
+          `Można kontynuować jego obsługę.`
+        )
+        .addFields({
+          name: "👤 Wznowił:",
+          value: message.member?.displayName ?? message.author.username,
+          inline: true,
+        })
+        .setFooter({ text: "PackSMP • Ticket wznowiony" })
+        .setTimestamp();
+
+      if (guildIcon) resumeEmbed.setThumbnail(guildIcon);
+
+      await channel.send({
+        content: ticket.userId ? `<@${ticket.userId}>` : "▶️",
+        embeds: [resumeEmbed],
+        allowedMentions: ticket.userId ? { users: [ticket.userId] } : { parse: [] },
+      });
+      await message.reply("✅ Ticket został wznowiony.");
       break;
     }
 
