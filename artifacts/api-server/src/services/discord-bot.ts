@@ -430,6 +430,7 @@ export async function startDiscordBot(): Promise<void> {
     try {
       const info = await detectTicketChannel(channel as TextChannel);
       if (!info) return; // not a ticket channel
+      await ensureRecruiterTicketAccess(channel as TextChannel);
       logger.info({ channelId: channel.id, channelName: (channel as any).name, ticketType: info.ticketType }, "Ticket channel detected via ChannelCreate");
       await sendTicketFormToChannel(channel as TextChannel, info.ticketType, info.userId, info.mentioned, (channel as any).name?.toLowerCase() ?? "");
     } catch (err) {
@@ -629,6 +630,28 @@ async function detectTicketChannel(channel: TextChannel): Promise<TicketDetectio
   return { ticketType, userId, mentioned };
 }
 
+async function ensureRecruiterTicketAccess(channel: TextChannel): Promise<void> {
+  try {
+    await channel.permissionOverwrites.edit(RECRUIT_ROLE_ID, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      EmbedLinks: true,
+      AttachFiles: true,
+      AddReactions: true,
+    });
+    logger.info(
+      { channelId: channel.id, roleId: RECRUIT_ROLE_ID },
+      "Recruiter role granted access to ticket",
+    );
+  } catch (err) {
+    logger.warn(
+      { err: String(err), channelId: channel.id, roleId: RECRUIT_ROLE_ID },
+      "Failed to grant recruiter role access to ticket",
+    );
+  }
+}
+
 // ── Backfill: send forms to existing ticket channels that missed auto-send ────
 // Called on every bot connect/reconnect AND every 5 minutes via watchdog.
 // Idempotent — skips channels where the bot already posted a form button.
@@ -664,6 +687,7 @@ export async function backfillTicketForms(): Promise<void> {
       const info = await detectTicketChannel(ch as TextChannel);
       if (!info) continue;
 
+      await ensureRecruiterTicketAccess(ch as TextChannel);
       logger.info({ channelId: ch.id, channelName: ch.name, ticketType: info.ticketType, userId: info.userId }, "Backfill: sending form to missed ticket channel");
       await sendTicketFormToChannel(ch as TextChannel, info.ticketType, info.userId, info.mentioned, ch.name.toLowerCase());
       filled++;
