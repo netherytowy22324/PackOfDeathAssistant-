@@ -1104,6 +1104,12 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
     ],
   },
   {
+    emoji: "🧪", header: "Narzędzia administracyjne",
+    cmds: [
+      { name: "=troll-panel", desc: "Otwiera formularz wysyłania wiadomości przez bota na wskazany kanał" },
+    ],
+  },
+  {
     emoji: "📋", header: "Weryfikacja",
     cmds: [
       { name: "=weryfikacja-reczna @user <nick>",        desc: "✏️ Ręcznie weryfikuje użytkownika z podanym nickiem MC (moderator+)" },
@@ -1803,6 +1809,35 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         .setFooter({ text: "PackSMP • Panel administracyjny • =pomocadminpanel" })
         .setTimestamp();
       await message.reply({ embeds: [embed] });
+      break;
+    }
+
+    case "troll-panel": {
+      if (!isAdmin(message)) {
+        await message.reply("❌ Brak uprawnień. Panel trolla jest dostępny tylko dla administracji.");
+        return;
+      }
+      const panelEmbed = new EmbedBuilder()
+        .setAuthor({
+          name: "PackSMP • Narzędzia administracyjne",
+          iconURL: message.guild?.iconURL({ extension: "png", size: 128 }) ?? undefined,
+        })
+        .setTitle("🧪 Panel wiadomości bota")
+        .setColor(0xED4245)
+        .setDescription(
+          "Kliknij przycisk, aby otworzyć formularz.\n\n" +
+          "Podasz ID kanału oraz treść wiadomości, a bot opublikuje ją na wskazanym kanale.\n" +
+          "Dla bezpieczeństwa wzmianki `@everyone` i `@here` są wyłączone."
+        )
+        .setFooter({ text: "PackSMP • Wiadomość zostanie wysłana przez bota" })
+        .setTimestamp();
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId("troll_panel_open")
+          .setLabel("✍️ Napisz jako bot")
+          .setStyle(ButtonStyle.Danger),
+      );
+      await message.reply({ embeds: [panelEmbed], components: [row] });
       break;
     }
 
@@ -2515,6 +2550,45 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
 }
 
 async function handleButtonInteraction(interaction: ButtonInteraction): Promise<void> {
+  if (interaction.customId === "troll_panel_open") {
+    const canUsePanel =
+      interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator) ||
+      interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild);
+    if (!canUsePanel) {
+      await interaction.reply({
+        content: "❌ Panel wiadomości bota jest dostępny tylko dla administracji.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId("troll_panel_modal")
+      .setTitle("🧪 Wiadomość jako bot");
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("troll_channel_id")
+          .setLabel("ID kanału")
+          .setPlaceholder("np. 123456789012345678")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(20),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("troll_message")
+          .setLabel("Treść wiadomości")
+          .setPlaceholder("Wpisz wiadomość, którą ma wysłać bot...")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1900),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
   if (interaction.customId === "smp_role_toggle") {
     const guild = interaction.guild;
     if (!guild) {
@@ -3093,6 +3167,68 @@ async function handleVacationModalSubmit(interaction: ModalSubmitInteraction): P
 }
 
 async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+  if (interaction.customId === "troll_panel_modal") {
+    const canUsePanel =
+      interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator) ||
+      interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild);
+    if (!canUsePanel) {
+      await interaction.reply({
+        content: "❌ Panel wiadomości bota jest dostępny tylko dla administracji.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const channelId = interaction.fields.getTextInputValue("troll_channel_id").trim();
+    const content = interaction.fields.getTextInputValue("troll_message").trim();
+    if (!/^\d{17,20}$/.test(channelId)) {
+      await interaction.editReply({ content: "❌ ID kanału musi składać się z 17–20 cyfr." });
+      return;
+    }
+    if (!content) {
+      await interaction.editReply({ content: "❌ Treść wiadomości nie może być pusta." });
+      return;
+    }
+
+    try {
+      const target = await interaction.client.channels.fetch(channelId);
+      if (!target?.isTextBased() || target.isDMBased()) {
+        await interaction.editReply({ content: "❌ Nie znaleziono tekstowego kanału serwera o tym ID." });
+        return;
+      }
+      const botMember = interaction.guild
+        ? interaction.guild.members.me ?? await interaction.guild.members.fetchMe()
+        : null;
+      if (!botMember || !("permissionsFor" in target)) {
+        await interaction.editReply({ content: "❌ Nie udało się sprawdzić uprawnień bota na tym kanale." });
+        return;
+      }
+      const permissions = (target as TextChannel).permissionsFor(botMember);
+      if (!permissions?.has(PermissionsBitField.Flags.ViewChannel) ||
+          !permissions.has(PermissionsBitField.Flags.SendMessages)) {
+        await interaction.editReply({
+          content: "❌ Bot nie ma uprawnień **Wyświetlanie kanału** i **Wysyłanie wiadomości** na tym kanale.",
+        });
+        return;
+      }
+
+      await (target as TextChannel).send({
+        content,
+        allowedMentions: { parse: ["users", "roles"] },
+      });
+      await interaction.editReply({
+        content: `✅ Wiadomość została wysłana przez bota na <#${channelId}>.`,
+      });
+    } catch (err) {
+      logger.warn({ err: String(err), channelId, userId: interaction.user.id }, "Troll panel message failed");
+      await interaction.editReply({
+        content: "❌ Nie udało się wysłać wiadomości. Sprawdź ID kanału i uprawnienia bota.",
+      });
+    }
+    return;
+  }
+
   if (interaction.customId === "urlop_modal") {
     await handleVacationModalSubmit(interaction);
     return;
