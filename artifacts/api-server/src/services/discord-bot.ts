@@ -7,10 +7,12 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
   type ButtonInteraction,
+  type StringSelectMenuInteraction,
   type ModalSubmitInteraction,
   type Message,
   PermissionsBitField,
@@ -36,6 +38,9 @@ const RECRUIT_WAITING_CHANNEL_ID = "1534985918140649544";
 const RECRUIT_ROLE_ID = "1534975728263626853";
 const NATION_ROLE_ID = "1535006748920778852";
 const GUILD_BACKUP_CONFIG_KEY = "discord_guild_backup_v1";
+const PROPOSAL_CHANNEL_ID = "1537879120938279032";
+const PROPOSAL_REFERENCE_MESSAGE_ID = "1521247374603976885";
+const PROPOSAL_VOTES_CONFIG_PREFIX = "discord_proposal_votes_v1:";
 const CHAT_CHANNEL_ID = process.env["DISCORD_CHAT_CHANNEL_ID"] ?? "";
 const VERIFY_ROLE_ID = process.env["DISCORD_VERIFY_ROLE_ID"] ?? "";
 const BOT_NICK = process.env["MC_BOT_NICK"] ?? "SyncBot";
@@ -406,6 +411,8 @@ export async function startDiscordBot(): Promise<void> {
     try {
       if (interaction.isButton()) {
         await handleButtonInteraction(interaction as ButtonInteraction);
+      } else if (interaction.isStringSelectMenu()) {
+        await handleSelectMenuInteraction(interaction as StringSelectMenuInteraction);
       } else if (interaction.isModalSubmit()) {
         await handleModalSubmit(interaction as ModalSubmitInteraction);
       }
@@ -1035,6 +1042,61 @@ async function restoreGuildBackup(guild: any, backup: GuildBackup): Promise<{ ro
   return { roles: createdRoles, channels: createdChannels };
 }
 
+type ProposalVotes = {
+  yes: string[];
+  no: string[];
+};
+
+function proposalVotesKey(messageId: string): string {
+  return `${PROPOSAL_VOTES_CONFIG_PREFIX}${messageId}`;
+}
+
+async function getProposalVotes(messageId: string): Promise<ProposalVotes> {
+  try {
+    const rows = await db
+      .select()
+      .from(systemConfigTable)
+      .where(eq(systemConfigTable.key, proposalVotesKey(messageId)))
+      .limit(1);
+    if (!rows[0]) return { yes: [], no: [] };
+    const parsed = JSON.parse(rows[0].value) as ProposalVotes;
+    return {
+      yes: Array.isArray(parsed.yes) ? parsed.yes : [],
+      no: Array.isArray(parsed.no) ? parsed.no : [],
+    };
+  } catch (err) {
+    logger.warn({ err: String(err), messageId }, "Failed to read proposal votes");
+    return { yes: [], no: [] };
+  }
+}
+
+async function saveProposalVotes(messageId: string, votes: ProposalVotes): Promise<void> {
+  const key = proposalVotesKey(messageId);
+  const value = JSON.stringify(votes);
+  await db
+    .insert(systemConfigTable)
+    .values({ key, value })
+    .onConflictDoUpdate({
+      target: systemConfigTable.key,
+      set: { value, updatedAt: new Date() },
+    });
+}
+
+function proposalVoteRow(votes: ProposalVotes): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("proposal_vote_yes")
+      .setLabel(`TAK (${votes.yes.length})`)
+      .setEmoji("✅")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId("proposal_vote_no")
+      .setLabel(`NIE (${votes.no.length})`)
+      .setEmoji("❌")
+      .setStyle(ButtonStyle.Danger),
+  );
+}
+
 function isModerator(message: Message): boolean {
   if (!message.member) return false;
   return isAdmin(message) || message.member.roles.cache.has(MODERATOR_ROLE_ID);
@@ -1107,6 +1169,7 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
     emoji: "🧪", header: "Narzędzia administracyjne",
     cmds: [
       { name: "=troll-panel", desc: "Otwiera formularz wysyłania wiadomości przez bota na wskazany kanał" },
+      { name: "=panel-napisz-propozycje", desc: "Tworzy panel do wysyłania propozycji na kanał propozycji" },
     ],
   },
   {
@@ -1841,6 +1904,55 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       break;
     }
 
+    case "panel-napisz-propozycje": {
+      if (!isAdmin(message)) {
+        await message.reply("❌ Brak uprawnień. Panel propozycji może utworzyć tylko administracja.");
+        return;
+      }
+      const panelEmbed = new EmbedBuilder()
+        .setAuthor({
+          name: "PackOfDeath • Propozycje",
+          iconURL: message.guild?.iconURL({ extension: "png", size: 128 }) ?? undefined,
+        })
+        .setTitle("💡 Napisz propozycję")
+        .setColor(0x5865F2)
+        .setDescription(
+          "Masz pomysł dotyczący serwera? Wybierz dział poniżej, a następnie wpisz treść propozycji.\n\n" +
+          `Propozycje są wysyłane na <#${PROPOSAL_CHANNEL_ID}>.\n` +
+          "Pod każdą propozycją można zagłosować przyciskiem **TAK** albo **NIE**.",
+        )
+        .setFooter({ text: `PackOfDeath • Format wzorowany na wiadomości ${PROPOSAL_REFERENCE_MESSAGE_ID}` })
+        .setTimestamp();
+      const select = new StringSelectMenuBuilder()
+        .setCustomId("proposal_category_select")
+        .setPlaceholder("Wybierz, czego dotyczy propozycja")
+        .addOptions(
+          {
+            label: "Discord",
+            value: "discord",
+            description: "Propozycje dotyczące serwera Discord",
+            emoji: "💬",
+          },
+          {
+            label: "SMP",
+            value: "smp",
+            description: "Propozycje dotyczące serwera Minecraft SMP",
+            emoji: "⛏️",
+          },
+          {
+            label: "Inne",
+            value: "inne",
+            description: "Pozostałe propozycje",
+            emoji: "📌",
+          },
+        );
+      await message.reply({
+        embeds: [panelEmbed],
+        components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
+      });
+      break;
+    }
+
     case "weryfikacja-panel": {
       if (!isAdmin(message)) {
         await message.reply("❌ Brak uprawnień.");
@@ -2549,7 +2661,65 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
   }
 }
 
+async function handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
+  if (interaction.customId !== "proposal_category_select") return;
+
+  const category = interaction.values[0];
+  const categoryLabels: Record<string, string> = {
+    discord: "Discord",
+    smp: "SMP",
+    inne: "Inne",
+  };
+  if (!category || !categoryLabels[category]) {
+    await interaction.reply({ content: "❌ Nieprawidłowy dział propozycji.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId(`proposal_modal:${category}`)
+    .setTitle(`Propozycja • ${categoryLabels[category]}`);
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId("proposal_text")
+        .setLabel("Treść propozycji")
+        .setPlaceholder("Opisz dokładnie swój pomysł...")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(1900),
+    ),
+  );
+  await interaction.showModal(modal);
+}
+
 async function handleButtonInteraction(interaction: ButtonInteraction): Promise<void> {
+  if (interaction.customId === "proposal_vote_yes" || interaction.customId === "proposal_vote_no") {
+    if (!interaction.guild || interaction.message.author?.id !== interaction.client.user?.id) {
+      await interaction.reply({ content: "❌ To nie jest aktywna propozycja PackOfDeath.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const votes = await getProposalVotes(interaction.message.id);
+    const userId = interaction.user.id;
+    votes.yes = votes.yes.filter((id) => id !== userId);
+    votes.no = votes.no.filter((id) => id !== userId);
+    if (interaction.customId === "proposal_vote_yes") {
+      votes.yes.push(userId);
+    } else {
+      votes.no.push(userId);
+    }
+
+    await saveProposalVotes(interaction.message.id, votes);
+    await interaction.message.edit({ components: [proposalVoteRow(votes)] });
+    await interaction.editReply({
+      content: interaction.customId === "proposal_vote_yes"
+        ? "✅ Twój głos został zapisany jako **TAK**."
+        : "❌ Twój głos został zapisany jako **NIE**.",
+    });
+    return;
+  }
+
   if (interaction.customId === "troll_panel_open") {
     const canUsePanel =
       interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator) ||
@@ -3167,6 +3337,79 @@ async function handleVacationModalSubmit(interaction: ModalSubmitInteraction): P
 }
 
 async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+  if (interaction.customId.startsWith("proposal_modal:")) {
+    const category = interaction.customId.split(":")[1];
+    const categoryLabels: Record<string, string> = {
+      discord: "Discord",
+      smp: "SMP",
+      inne: "Inne",
+    };
+    if (!category || !categoryLabels[category]) {
+      await interaction.reply({ content: "❌ Nieprawidłowy dział propozycji.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const proposalText = interaction.fields.getTextInputValue("proposal_text").trim();
+    if (!proposalText) {
+      await interaction.editReply({ content: "❌ Treść propozycji nie może być pusta." });
+      return;
+    }
+
+    try {
+      const target = await interaction.client.channels.fetch(PROPOSAL_CHANNEL_ID);
+      if (!target?.isTextBased() || target.isDMBased()) {
+        await interaction.editReply({ content: "❌ Nie znaleziono kanału propozycji." });
+        return;
+      }
+      const botMember = interaction.guild
+        ? interaction.guild.members.me ?? await interaction.guild.members.fetchMe()
+        : null;
+      if (!botMember || !("permissionsFor" in target)) {
+        await interaction.editReply({ content: "❌ Nie udało się sprawdzić uprawnień bota na kanale propozycji." });
+        return;
+      }
+      const permissions = (target as TextChannel).permissionsFor(botMember);
+      if (!permissions?.has(PermissionsBitField.Flags.ViewChannel) ||
+          !permissions.has(PermissionsBitField.Flags.SendMessages)) {
+        await interaction.editReply({
+          content: "❌ Bot nie ma uprawnień do wysyłania wiadomości na kanale propozycji.",
+        });
+        return;
+      }
+
+      const proposalEmbed = new EmbedBuilder()
+        .setAuthor({
+          name: interaction.user.tag,
+          iconURL: interaction.user.displayAvatarURL({ size: 128 }),
+        })
+        .setTitle("💡 Nowa propozycja")
+        .setColor(0x5865F2)
+        .addFields(
+          { name: "📂 Dotyczy", value: categoryLabels[category], inline: true },
+          { name: "👤 Autor", value: `<@${interaction.user.id}>`, inline: true },
+          { name: "📝 Treść propozycji", value: proposalText, inline: false },
+        )
+        .setFooter({ text: "PackOfDeath • Zagłosuj poniżej: TAK / NIE" })
+        .setTimestamp();
+      const sent = await (target as TextChannel).send({
+        embeds: [proposalEmbed],
+        components: [proposalVoteRow({ yes: [], no: [] })],
+        allowedMentions: { users: [interaction.user.id] },
+      });
+      await saveProposalVotes(sent.id, { yes: [], no: [] });
+      await interaction.editReply({
+        content: `✅ Twoja propozycja została wysłana na <#${PROPOSAL_CHANNEL_ID}>.`,
+      });
+    } catch (err) {
+      logger.warn({ err: String(err), channelId: PROPOSAL_CHANNEL_ID, userId: interaction.user.id }, "Proposal submission failed");
+      await interaction.editReply({
+        content: "❌ Nie udało się wysłać propozycji. Sprawdź konfigurację kanału i uprawnienia bota.",
+      });
+    }
+    return;
+  }
+
   if (interaction.customId === "troll_panel_modal") {
     const canUsePanel =
       interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator) ||
