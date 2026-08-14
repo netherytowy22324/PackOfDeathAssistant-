@@ -193,7 +193,7 @@ const RESULT_FORM_PAGES: TicketFormField[][] = [
     {
       id: "rounds",
       label: "Wyniki rund",
-      placeholder: "Jedna runda w jednej linii, np. Castplay.pl 1-0",
+      placeholder: "Jedna runda w jednej linii, np. Axe 0:1",
       style: TextInputStyle.Paragraph,
     },
     {
@@ -212,6 +212,7 @@ const TEST_RESULT_ANSWERS: Record<string, string> = {
   examiner: "@CWT | IzraelskiMichal",
   pvp_level: "T3",
   rounds: [
+    "Axe 0:1",
     "Castplay.pl 1-0",
     "Castplay.pl 1-0",
     "Castplay.pl 1-0",
