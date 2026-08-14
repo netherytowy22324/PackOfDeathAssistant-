@@ -834,8 +834,7 @@ async function sendTicketFormToChannel(
 
 function isAdmin(message: Message): boolean {
   if (!message.member) return false;
-  return message.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
-    message.member.permissions.has(PermissionsBitField.Flags.ManageGuild);
+  return message.member.permissions.has(PermissionsBitField.Flags.Administrator);
 }
 
 function hasRecruiterAccess(message: Message): boolean {
@@ -1259,6 +1258,40 @@ export const ALL_CMD_REGISTRY: CmdSection[] = [
   ...MC_CMD_REGISTRY,
 ];
 
+const REGISTERED_DISCORD_COMMANDS = new Set(
+  ALL_CMD_REGISTRY.flatMap((section) =>
+    section.cmds.flatMap((entry) =>
+      entry.name.split("/").map((part) =>
+        part.trim().split(/\s+/)[0]?.replace(/^=/, "").toLowerCase(),
+      ),
+    ),
+  ),
+);
+for (const alias of [
+  "wynik-wyslij-na",
+  "wynik-wyślij-na",
+  "wynik-test-ostatni-wyslij-na",
+  "usun-backup",
+]) {
+  REGISTERED_DISCORD_COMMANDS.add(alias);
+}
+
+const PUBLIC_DISCORD_COMMANDS = new Set([
+  "help",
+  "pomoc",
+  "helpallcommands",
+  "status",
+  "gracze",
+  "ping",
+  "liczba-w-p",
+  "zweryfikowani",
+  "info",
+  "weryfikacja",
+  "weryfikacja-usun",
+  "verify",
+  "zweryfikujkontodc",
+]);
+
 function buildFields(registry: CmdSection[]) {
   // One field per section — avoids Discord's 25-field embed limit
   return registry.map(section => ({
@@ -1271,6 +1304,15 @@ function buildFields(registry: CmdSection[]) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function handleDiscordCommand(message: Message, cmd: string, args: string[]): Promise<void> {
+  if (
+    REGISTERED_DISCORD_COMMANDS.has(cmd) &&
+    !PUBLIC_DISCORD_COMMANDS.has(cmd) &&
+    !isAdmin(message)
+  ) {
+    await message.reply("❌ Ta komenda jest dostępna tylko dla osób z rangą posiadającą uprawnienie **Administrator**.");
+    return;
+  }
+
   switch (cmd) {
     // ── Aliases ──────────────────────────────────────────────────────
     case "help":
