@@ -14,6 +14,7 @@ import {
   type ModalSubmitInteraction,
   type Message,
   PermissionsBitField,
+  ChannelType,
   MessageFlags,
   Events,
 } from "discord.js";
@@ -25,7 +26,7 @@ import { logChat, logEvent, getRecentLogs, getRecentChats } from "./system-log.j
 import { sendChatMessage, getMcBotStatus, restartMinecraft, setVerificationSuccessCallback, getOnlinePlayers } from "./minecraft-bot.js";
 import { getRconStatus } from "./rcon.js";
 import { db } from "@workspace/db";
-import { verifiedUsersTable, pendingFormAnswersTable, vacationRequestsTable } from "@workspace/db";
+import { verifiedUsersTable, pendingFormAnswersTable, vacationRequestsTable, systemConfigTable } from "@workspace/db";
 import { asc, eq, gte, lt, lte } from "drizzle-orm";
 
 const DISCORD_TOKEN = process.env["DISCORD_TOKEN"] ?? "";
@@ -33,6 +34,8 @@ const GUILD_ID = process.env["DISCORD_GUILD_ID"] ?? "";
 const BLACKLIST_CHANNEL_ID = "1536657390781472838";
 const RECRUIT_WAITING_CHANNEL_ID = "1534985918140649544";
 const RECRUIT_ROLE_ID = "1534975728263626853";
+const NATION_ROLE_ID = "1535006748920778852";
+const GUILD_BACKUP_CONFIG_KEY = "discord_guild_backup_v1";
 const CHAT_CHANNEL_ID = process.env["DISCORD_CHAT_CHANNEL_ID"] ?? "";
 const VERIFY_ROLE_ID = process.env["DISCORD_VERIFY_ROLE_ID"] ?? "";
 const BOT_NICK = process.env["MC_BOT_NICK"] ?? "SyncBot";
@@ -832,6 +835,206 @@ function hasRecruiterAccess(message: Message): boolean {
   return isAdmin(message) || Boolean(message.member?.roles.cache.has(RECRUIT_ROLE_ID));
 }
 
+type GuildBackupRole = {
+  id: string;
+  name: string;
+  color: number;
+  hoist: boolean;
+  position: number;
+  permissions: string;
+  mentionable: boolean;
+};
+
+type GuildBackupOverwrite = {
+  id: string;
+  type: number;
+  allow: string;
+  deny: string;
+};
+
+type GuildBackupChannel = {
+  id: string;
+  name: string;
+  type: number;
+  parentId: string | null;
+  position: number;
+  topic: string | null;
+  nsfw: boolean;
+  rateLimitPerUser: number;
+  bitrate: number | null;
+  userLimit: number | null;
+  permissionOverwrites: GuildBackupOverwrite[];
+};
+
+type GuildBackup = {
+  version: 1;
+  guildId: string;
+  guildName: string;
+  createdAt: string;
+  roles: GuildBackupRole[];
+  channels: GuildBackupChannel[];
+};
+
+async function getGuildBackup(): Promise<GuildBackup | null> {
+  try {
+    const rows = await db
+      .select()
+      .from(systemConfigTable)
+      .where(eq(systemConfigTable.key, GUILD_BACKUP_CONFIG_KEY))
+      .limit(1);
+    if (!rows[0]) return null;
+    const parsed = JSON.parse(rows[0].value) as GuildBackup;
+    return parsed.version === 1 ? parsed : null;
+  } catch (err) {
+    logger.warn({ err: String(err) }, "Failed to read Discord guild backup");
+    return null;
+  }
+}
+
+async function saveGuildBackup(backup: GuildBackup): Promise<void> {
+  await db
+    .insert(systemConfigTable)
+    .values({ key: GUILD_BACKUP_CONFIG_KEY, value: JSON.stringify(backup) })
+    .onConflictDoUpdate({
+      target: systemConfigTable.key,
+      set: { value: JSON.stringify(backup), updatedAt: new Date() },
+    });
+}
+
+async function deleteGuildBackup(): Promise<void> {
+  await db.delete(systemConfigTable).where(eq(systemConfigTable.key, GUILD_BACKUP_CONFIG_KEY));
+}
+
+function serializePermissionOverwrites(channel: any): GuildBackupOverwrite[] {
+  return [...(channel.permissionOverwrites?.cache?.values?.() ?? [])].map((overwrite: any) => ({
+    id: overwrite.id,
+    type: Number(overwrite.type),
+    allow: overwrite.allow.bitfield.toString(),
+    deny: overwrite.deny.bitfield.toString(),
+  }));
+}
+
+async function captureGuildBackup(guild: any): Promise<GuildBackup> {
+  const roles: GuildBackupRole[] = guild.roles.cache
+    .filter((role: any) => !role.managed && role.id !== guild.id)
+    .map((role: any) => ({
+      id: role.id,
+      name: role.name,
+      color: role.color,
+      hoist: role.hoist,
+      position: role.position,
+      permissions: role.permissions.bitfield.toString(),
+      mentionable: role.mentionable,
+    }));
+
+  const channels: GuildBackupChannel[] = guild.channels.cache.map((channel: any) => ({
+    id: channel.id,
+    name: channel.name,
+    type: Number(channel.type),
+    parentId: channel.parentId ?? null,
+    position: channel.position ?? 0,
+    topic: "topic" in channel ? channel.topic ?? null : null,
+    nsfw: Boolean(channel.nsfw),
+    rateLimitPerUser: channel.rateLimitPerUser ?? 0,
+    bitrate: "bitrate" in channel ? channel.bitrate ?? null : null,
+    userLimit: "userLimit" in channel ? channel.userLimit ?? null : null,
+    permissionOverwrites: serializePermissionOverwrites(channel),
+  }));
+
+  return {
+    version: 1,
+    guildId: guild.id,
+    guildName: guild.name,
+    createdAt: new Date().toISOString(),
+    roles,
+    channels,
+  };
+}
+
+async function restoreGuildBackup(guild: any, backup: GuildBackup): Promise<{ roles: number; channels: number }> {
+  const roleIdMap = new Map<string, string>();
+  const currentRoles = [...guild.roles.cache.values()] as any[];
+  let createdRoles = 0;
+
+  for (const role of [...backup.roles].sort((a, b) => a.position - b.position)) {
+    const existing = currentRoles.find((candidate) => candidate.name === role.name);
+    if (existing) {
+      roleIdMap.set(role.id, existing.id);
+      continue;
+    }
+    try {
+      const created = await guild.roles.create({
+        name: role.name,
+        color: role.color,
+        hoist: role.hoist,
+        permissions: BigInt(role.permissions),
+        mentionable: role.mentionable,
+        reason: "PackSMP backup restore",
+      });
+      roleIdMap.set(role.id, created.id);
+      createdRoles++;
+    } catch (err) {
+      logger.warn({ err: String(err), roleName: role.name }, "Failed to restore backup role");
+    }
+  }
+
+  const channelIdMap = new Map<string, string>();
+  let createdChannels = 0;
+  const restoreChannel = async (snapshot: GuildBackupChannel): Promise<void> => {
+    const parentId = snapshot.parentId ? channelIdMap.get(snapshot.parentId) ?? null : null;
+    const existing = guild.channels.cache.find(
+      (channel: any) =>
+        channel.name === snapshot.name &&
+        Number(channel.type) === snapshot.type &&
+        (channel.parentId ?? null) === parentId,
+    );
+    if (existing) {
+      channelIdMap.set(snapshot.id, existing.id);
+      return;
+    }
+
+    const permissionOverwrites = snapshot.permissionOverwrites
+      .map((overwrite) => ({
+        id: overwrite.type === 0 ? roleIdMap.get(overwrite.id) : overwrite.id,
+        type: overwrite.type,
+        allow: BigInt(overwrite.allow),
+        deny: BigInt(overwrite.deny),
+      }))
+      .filter((overwrite) => Boolean(overwrite.id));
+    const options: any = {
+      name: snapshot.name,
+      type: snapshot.type,
+      reason: "PackSMP backup restore",
+      permissionOverwrites,
+    };
+    if (parentId) options.parent = parentId;
+    if (snapshot.topic !== null) options.topic = snapshot.topic;
+    if (snapshot.nsfw) options.nsfw = true;
+    if (snapshot.rateLimitPerUser) options.rateLimitPerUser = snapshot.rateLimitPerUser;
+    if (snapshot.bitrate) options.bitrate = snapshot.bitrate;
+    if (snapshot.userLimit) options.userLimit = snapshot.userLimit;
+
+    try {
+      const created = await guild.channels.create(options);
+      channelIdMap.set(snapshot.id, created.id);
+      createdChannels++;
+    } catch (err) {
+      logger.warn({ err: String(err), channelName: snapshot.name }, "Failed to restore backup channel");
+    }
+  };
+
+  const categories = backup.channels
+    .filter((channel) => channel.type === ChannelType.GuildCategory)
+    .sort((a, b) => a.position - b.position);
+  const otherChannels = backup.channels
+    .filter((channel) => channel.type !== ChannelType.GuildCategory)
+    .sort((a, b) => a.position - b.position);
+  for (const category of categories) await restoreChannel(category);
+  for (const channel of otherChannels) await restoreChannel(channel);
+
+  return { roles: createdRoles, channels: createdChannels };
+}
+
 function isModerator(message: Message): boolean {
   if (!message.member) return false;
   return isAdmin(message) || message.member.roles.cache.has(MODERATOR_ROLE_ID);
@@ -853,6 +1056,7 @@ export const PLAYER_CMD_REGISTRY: CmdSection[] = [
       { name: "=status",                       desc: "Status systemu MC↔DC (Discord, MC bot, sync)" },
       { name: "=gracze",                       desc: "Lista graczy aktualnie online na serwerze MC" },
       { name: "=ping",                         desc: "Opóźnienie bota Discord" },
+      { name: "=liczba-w-p",                   desc: "Pokazuje liczbę osób posiadających rangę państwa" },
       { name: "=smp-panel",                    desc: "Wysyła panel do otrzymania/usunięcia rangi SMP" },
       { name: "=zweryfikowani [strona]",       desc: "Lista zweryfikowanych kont MC↔Discord" },
       { name: "=info <nick_mc>",               desc: "Sprawdź info o graczu i jego weryfikację" },
@@ -886,7 +1090,17 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
       { name: "=wynik-test-ftomularz", desc: "Alias testowego formularza wyniku rekrutacji" },
       { name: "=wynik-test-ostatniej-wyslij-na <id_kanału> <id_wiadomości>", desc: "Przekazuje wiadomość z wynikiem rekrutacji na wskazany kanał" },
       { name: "=wstrzymaj-ticket [powód]", desc: "Oznacza ticket jako wstrzymany i publikuje powód w kanale" },
-      { name: "=wznow-ticket", desc: "Oznacza wstrzymany ticket jako wznowiony" },
+      { name: "=wznow-ticket / =wznów-ticket", desc: "Oznacza wstrzymany ticket jako wznowiony" },
+    ],
+  },
+  {
+    emoji: "💾", header: "Backup serwera",
+    cmds: [
+      { name: "=zrob-backup", desc: "Tworzy backup ról, kanałów, kategorii i uprawnień serwera" },
+      { name: "=status-backup", desc: "Pokazuje status zapisanego backupu" },
+      { name: "=ostatni-backup", desc: "Pokazuje informacje o ostatnim backupie" },
+      { name: "=zaladuj-backup", desc: "Odtwarza brakujące role, kanały, kategorie i uprawnienia" },
+      { name: "=usun-ostatni-backup", desc: "Usuwa zapisany backup" },
     ],
   },
   {
@@ -1013,6 +1227,131 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         .setFooter({ text: "PackSMP • Komenda: =helpAllCommands" })
         .setTimestamp();
       await message.reply({ embeds: [embed] });
+      break;
+    }
+
+    case "liczba-w-p": {
+      if (!message.guild) return;
+      const role = await message.guild.roles.fetch(NATION_ROLE_ID);
+      if (!role) {
+        await message.reply(`❌ Nie znaleziono rangi państwa o ID \`${NATION_ROLE_ID}\`.`);
+        return;
+      }
+
+      await message.guild.members.fetch();
+      const members = message.guild.members.cache.filter(
+        (member) => member.roles.cache.has(NATION_ROLE_ID) && !member.user.bot,
+      );
+      const online = members.filter((member) =>
+        member.presence?.status && member.presence.status !== "offline",
+      ).size;
+      const embed = new EmbedBuilder()
+        .setTitle("🏳️ Liczba osób w państwie")
+        .setColor(0x5865F2)
+        .setDescription(
+          `Ranga: <@&${NATION_ROLE_ID}>\n\n` +
+          `👥 **Wszystkich osób:** ${members.size}\n` +
+          `🟢 **Aktualnie online:** ${online}`,
+        )
+        .setFooter({ text: "PackSMP • Statystyka państwa" })
+        .setTimestamp();
+      await message.reply({ embeds: [embed] });
+      break;
+    }
+
+    case "zrob-backup": {
+      if (!isAdmin(message)) {
+        await message.reply("❌ Backup może wykonać tylko administrator.");
+        return;
+      }
+      if (!message.guild) return;
+      const guild = message.guild;
+      await guild.roles.fetch();
+      await guild.channels.fetch();
+      const backup = await captureGuildBackup(guild);
+      await saveGuildBackup(backup);
+      await message.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("✅ Backup serwera wykonany")
+            .setColor(0x57F287)
+            .setDescription(
+              `Zapisano strukturę serwera **${guild.name}**.\n\n` +
+              `🎭 Ról: **${backup.roles.length}**\n` +
+              `📁 Kanałów i kategorii: **${backup.channels.length}**\n\n` +
+              `Backup nie obejmuje historii wiadomości, ponieważ Discord nie pozwala botom eksportować jej w pełni.`,
+            )
+            .setFooter({ text: "PackSMP • Backup zapisany w bazie PostgreSQL" })
+            .setTimestamp(),
+        ],
+      });
+      break;
+    }
+
+    case "status-backup":
+    case "ostatni-backup": {
+      const backup = await getGuildBackup();
+      if (!backup) {
+        await message.reply("ℹ️ Nie ma jeszcze zapisanego backupu serwera.");
+        return;
+      }
+      const date = new Date(backup.createdAt);
+      await message.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("💾 Ostatni backup serwera")
+            .setColor(0x5865F2)
+            .setDescription(
+              `Serwer: **${backup.guildName}**\n` +
+              `Wykonano: <t:${Math.floor(date.getTime() / 1000)}:F>\n\n` +
+              `🎭 Ról: **${backup.roles.length}**\n` +
+              `📁 Kanałów i kategorii: **${backup.channels.length}**\n` +
+              `📦 Wersja backupu: **${backup.version}**`,
+            )
+            .setFooter({ text: "PackSMP • Backup serwera" })
+            .setTimestamp(),
+        ],
+      });
+      break;
+    }
+
+    case "zaladuj-backup": {
+      if (!isAdmin(message)) {
+        await message.reply("❌ Backup może załadować tylko administrator.");
+        return;
+      }
+      if (!message.guild) return;
+      const backup = await getGuildBackup();
+      if (!backup) {
+        await message.reply("❌ Nie ma zapisanego backupu do załadowania.");
+        return;
+      }
+      if (backup.guildId !== message.guild.id) {
+        await message.reply("❌ Ten backup pochodzi z innego serwera i nie zostanie załadowany.");
+        return;
+      }
+
+      await message.reply("⏳ Rozpoczynam bezpieczne ładowanie backupu. Nie usuwam istniejących elementów.");
+      const restored = await restoreGuildBackup(message.guild, backup);
+      await (message.channel as TextChannel).send(
+        `✅ Backup załadowany. Utworzono ról: **${restored.roles}**, kanałów/kategorii: **${restored.channels}**.`,
+      );
+      break;
+    }
+
+    case "usun-ostatni-backup":
+    case "usun-backup": {
+      if (!isAdmin(message)) {
+        await message.reply("❌ Backup może usunąć tylko administrator.");
+        return;
+      }
+      const backup = await getGuildBackup();
+      if (!backup) {
+        await message.reply("ℹ️ Nie ma zapisanego backupu do usunięcia.");
+        return;
+      }
+      await deleteGuildBackup();
+      await message.reply("✅ Ostatni backup został usunięty.");
       break;
     }
 
@@ -1155,7 +1494,8 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       break;
     }
 
-    case "wznow-ticket": {
+    case "wznow-ticket":
+    case "wznów-ticket": {
       if (!hasRecruiterAccess(message)) {
         await message.reply("❌ Ta komenda jest dostępna tylko dla rekruterów i administracji.");
         return;
@@ -1164,13 +1504,21 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
 
       const channel = message.channel as TextChannel;
       const ticket = await detectTicketChannel(channel);
-      if (!ticket) {
+      const channelName = channel.name.toLowerCase();
+      const parentName = channel.parent?.name?.toLowerCase() ?? "";
+      const isTicketNamedChannel =
+        channelName.includes("ticket") ||
+        parentName.includes("ticket") ||
+        parentName.includes("support") ||
+        parentName.includes("zgłoszenia") ||
+        parentName.includes("rekrutacja");
+      if (!ticket && !isTicketNamedChannel) {
         await message.reply("❌ Tej komendy można użyć tylko na kanale ticketu.");
         return;
       }
 
       const guildIcon = message.guild.iconURL({ extension: "png", size: 256 });
-      const ticketOwner = ticket.userId ? `<@${ticket.userId}>` : "Zgłaszający";
+      const ticketOwner = ticket?.userId ? `<@${ticket.userId}>` : "Zgłaszający";
       const resumeEmbed = new EmbedBuilder()
         .setAuthor({ name: "PackSMP • Status ticketu" })
         .setTitle("▶️ Ticket wznowiony")
@@ -1191,9 +1539,9 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       if (guildIcon) resumeEmbed.setThumbnail(guildIcon);
 
       await channel.send({
-        content: ticket.userId ? `<@${ticket.userId}>` : "▶️",
+        content: ticket?.userId ? `<@${ticket.userId}>` : "▶️",
         embeds: [resumeEmbed],
-        allowedMentions: ticket.userId ? { users: [ticket.userId] } : { parse: [] },
+        allowedMentions: ticket?.userId ? { users: [ticket.userId] } : { parse: [] },
       });
       await message.reply("✅ Ticket został wznowiony.");
       break;
