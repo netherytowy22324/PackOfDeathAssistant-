@@ -187,13 +187,16 @@ const RESULT_FORM_PAGES: TicketFormField[][] = [
     { id: "participant",  label: "Uczestnik",         placeholder: "@osoba lub nick Discord", style: TextInputStyle.Short },
     { id: "examiner",     label: "Egzaminator",       placeholder: "np. @CWT | IzraelskiMichal", style: TextInputStyle.Short },
     { id: "pvp_level",    label: "Poziom PvP",        placeholder: "np. T3", style: TextInputStyle.Short },
-    { id: "total_result", label: "Łączny wynik",      placeholder: "np. IzraelskiMichal 10-0", style: TextInputStyle.Short },
+    { id: "stage1",      label: "I etap",            placeholder: "Zdany / Niezdany", style: TextInputStyle.Short },
   ],
   [
+    { id: "stage2",      label: "II etap",            placeholder: "Zdany / Niezdany", style: TextInputStyle.Short },
+    { id: "stage3",      label: "III etap",           placeholder: "Zdany / Niezdany", style: TextInputStyle.Short },
+    { id: "total_result", label: "Łączny wynik",      placeholder: "np. CWT 3:0", style: TextInputStyle.Short },
     {
       id: "rounds",
-      label: "Wyniki rund",
-      placeholder: "Jedna runda w jednej linii, np. Axe 0:1",
+      label: "Tryby gry i wyniki",
+      placeholder: "Jedna linia: Axe: 3:0",
       style: TextInputStyle.Paragraph,
     },
     {
@@ -207,24 +210,20 @@ const RESULT_FORM_PAGES: TicketFormField[][] = [
 ];
 
 const TEST_RESULT_ANSWERS: Record<string, string> = {
-  status: "niezdana",
+  status: "zdana",
   participant: "@SLIMAK WODNY",
   examiner: "@CWT | IzraelskiMichal",
   pvp_level: "T3",
+  stage1: "zdany",
+  stage2: "zdany",
+  stage3: "zdany",
   rounds: [
-    "Axe 0:1",
-    "Castplay.pl 1-0",
-    "Castplay.pl 1-0",
-    "Castplay.pl 1-0",
-    "Castplay.pl 1-0",
-    "Diamond SMP 1-0",
-    "Diamond SMP 1-0",
-    "Diamond SMP 1-0",
-    "Netherite + Pot 1-0",
-    "Netherite + Pot 1-0",
-    "Netherite + Pot 1-0",
+    "Axe: 3:0",
+    "Castplay.pl: 1:0",
+    "Diamond SMP: 1:0",
+    "Netherite + Pot: 1:0",
   ].join("\n"),
-  total_result: "IzraelskiMichal 10-0",
+  total_result: "CWT 3:0",
   notes: "Brak dodatkowych uwag",
 };
 
@@ -950,6 +949,7 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         .setColor(0x5865F2)
         .setDescription(
           "Wypełnij formularz, aby opublikować wynik rekrutacji w czytelnej formie.\n\n" +
+          "Wpisz status I, II i III etapu oraz tryby gry z wynikami, np. `Axe: 3:0`.\n\n" +
           "Uzupełnij obie strony, a bot wyśle gotowy embed na ten kanał."
         )
         .setFooter({ text: "PackSMP • Wyniki rekrutacji" })
@@ -2261,6 +2261,22 @@ function buildRecruitmentResultEmbed(
   const examiner = answers.examiner ?? "*(brak odpowiedzi)*";
   const pvpLevel = answers.pvp_level ?? "*(brak odpowiedzi)*";
   const totalResult = answers.total_result ?? "*(brak odpowiedzi)*";
+  const formatStage = (roman: string, answer?: string): string => {
+    const value = (answer ?? "").trim();
+    const normalized = value.toLowerCase();
+    if (normalized.includes("nie") || normalized.includes("odrzu") || normalized.includes("fail")) {
+      return `🏁 ${roman} ETAP: ❌ NIEZDANY`;
+    }
+    if (normalized.includes("zd") || normalized.includes("zal") || normalized === "tak") {
+      return `🏁 ${roman} ETAP: ✅ ZDANY`;
+    }
+    return `🏁 ${roman} ETAP: ${value || "*(brak odpowiedzi)*"}`;
+  };
+  const stages = [
+    formatStage("I", answers.stage1),
+    formatStage("II", answers.stage2),
+    formatStage("III", answers.stage3),
+  ].join("\n");
   const rounds = (answers.rounds ?? "*(brak odpowiedzi)*")
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -2280,6 +2296,7 @@ function buildRecruitmentResultEmbed(
       { name: "👥 Uczestnik:", value: participant.slice(0, 1024), inline: false },
       { name: "⚙️ Egzaminator:", value: examiner.slice(0, 1024), inline: false },
       { name: "🏅 Poziom PvP:", value: pvpLevel.slice(0, 1024), inline: false },
+      { name: "📋 Etapy rekrutacji:", value: stages, inline: false },
       { name: "📊 Wyniki walk:", value: rounds.slice(0, 1024), inline: false },
       { name: "🏅 Łączny wynik:", value: totalResult.slice(0, 1024), inline: false },
       { name: "Uwagi:", value: notes.slice(0, 1024), inline: false },
