@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import path from "node:path";
 import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { apiRateLimiter } from "./middlewares/rate-limiter.js";
@@ -42,10 +43,17 @@ app.use("/api", router);
 
 // Serve the admin panel from the same Render service in production.
 // The API remains available under /api and Vite's SPA routes fall back to index.html.
-const adminPanelDir = path.resolve(
-  process.cwd(),
-  "artifacts/admin-panel/dist/public",
-);
+const adminPanelCandidates = [
+  path.resolve(process.cwd(), "artifacts/admin-panel/dist/public"),
+  path.resolve(process.cwd(), "../admin-panel/dist/public"),
+  path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../admin-panel/dist/public",
+  ),
+];
+const adminPanelDir =
+  adminPanelCandidates.find((candidate) => existsSync(candidate)) ??
+  adminPanelCandidates[0];
 const adminPanelIndex = path.join(adminPanelDir, "index.html");
 
 if (existsSync(adminPanelIndex)) {
