@@ -35,7 +35,7 @@ DISCORD_CHAT_CHANNEL_ID = "1537148128208359464"
 
 [userenv.development]
 MC_BOT_ENABLED = "false"
-DISCORD_BOT_ENABLED = "false"
+DISCORD_BOT_ENABLED = "true"
 
 [userenv.production]
 MC_BOT_ENABLED = "true"
