@@ -2255,15 +2255,10 @@ function buildRecruitmentResultEmbed(
   guildIcon?: string | null,
 ): EmbedBuilder {
   const status = (answers.status ?? "").toLowerCase();
-  const hasRejectedStage = [answers.stage1, answers.stage2, answers.stage3].some((answer) => {
-    const normalized = (answer ?? "").trim().toLowerCase();
-    return normalized.includes("nie") || normalized.includes("odrzu") || normalized.includes("fail");
-  });
   const isRejected =
     status.includes("nie") ||
     status.includes("odrzu") ||
-    status.includes("fail") ||
-    hasRejectedStage;
+    status.includes("fail");
   const resultTitle = `${isTest ? "🧪 TEST • " : ""}${isRejected ? "🚩 Rekrutacja niezdana" : "✅ Rekrutacja zdana"}`;
   const resultColor = isRejected ? 0xED4245 : 0x57F287;
   const participant = answers.participant ?? "*(brak odpowiedzi)*";
