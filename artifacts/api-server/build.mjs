@@ -29,6 +29,11 @@ async function buildAll() {
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
       "*.node",
+      // Keep the large bot libraries out of the bundle. They are installed
+      // with the service and loaded normally by Node at runtime.
+      "discord.js",
+      "mineflayer",
+      "rcon-client",
       "sharp",
       "better-sqlite3",
       "sqlite3",
