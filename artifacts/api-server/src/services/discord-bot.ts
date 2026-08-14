@@ -949,7 +949,8 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         .setColor(0x5865F2)
         .setDescription(
           "Wypełnij formularz, aby opublikować wynik rekrutacji w czytelnej formie.\n\n" +
-          "Wpisz status I, II i III etapu oraz tryby gry z wynikami, np. `Axe: 3:0`.\n\n" +
+          "Każdy etap ustaw osobno jako `zdany` albo `niezdany`. Możesz zdać np. I i III etap, a II mieć niezdany.\n" +
+          "Tryby gry z wynikami wpisuj np. `Axe: 3:0`.\n\n" +
           "Uzupełnij obie strony, a bot wyśle gotowy embed na ten kanał."
         )
         .setFooter({ text: "PackSMP • Wyniki rekrutacji" })
@@ -2254,7 +2255,15 @@ function buildRecruitmentResultEmbed(
   guildIcon?: string | null,
 ): EmbedBuilder {
   const status = (answers.status ?? "").toLowerCase();
-  const isRejected = status.includes("nie") || status.includes("odrzu") || status.includes("fail");
+  const hasRejectedStage = [answers.stage1, answers.stage2, answers.stage3].some((answer) => {
+    const normalized = (answer ?? "").trim().toLowerCase();
+    return normalized.includes("nie") || normalized.includes("odrzu") || normalized.includes("fail");
+  });
+  const isRejected =
+    status.includes("nie") ||
+    status.includes("odrzu") ||
+    status.includes("fail") ||
+    hasRejectedStage;
   const resultTitle = `${isTest ? "🧪 TEST • " : ""}${isRejected ? "🚩 Rekrutacja niezdana" : "✅ Rekrutacja zdana"}`;
   const resultColor = isRejected ? 0xED4245 : 0x57F287;
   const participant = answers.participant ?? "*(brak odpowiedzi)*";
