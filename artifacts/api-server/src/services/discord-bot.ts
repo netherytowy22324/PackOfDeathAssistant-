@@ -1151,6 +1151,7 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
       { name: "=wynik-test-formularz", desc: "Wysyła przykładowy testowy wynik rekrutacji do podglądu wyglądu" },
       { name: "=wynik-test-ftomularz", desc: "Alias testowego formularza wyniku rekrutacji" },
       { name: "=wynik-test-ostatniej-wyslij-na <id_kanału> <id_wiadomości>", desc: "Przekazuje wiadomość z wynikiem rekrutacji na wskazany kanał" },
+      { name: "=wynik-wslij-na <id_kanału> <id_wiadomości>", desc: "Przekazuje wynik rekrutacji na wskazany kanał" },
       { name: "=wstrzymaj-ticket [powód]", desc: "Oznacza ticket jako wstrzymany i publikuje powód w kanale" },
       { name: "=wznow-ticket / =wznów-ticket", desc: "Oznacza wstrzymany ticket jako wznowiony" },
     ],
@@ -1635,6 +1636,9 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       break;
     }
 
+    case "wynik-wslij-na":
+    case "wynik-wyslij-na":
+    case "wynik-wyślij-na":
     case "wynik-test-ostatniej-wyslij-na":
     case "wynik-test-ostatni-wyslij-na": {
       if (!hasRecruiterAccess(message)) {
@@ -1649,7 +1653,7 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       if (!/^\d{15,25}$/.test(channelId) || !/^\d{15,25}$/.test(messageId)) {
         await message.reply(
           "❌ Podaj poprawne ID kanału i ID wiadomości.\n" +
-          "Przykład: `=wynik-test-ostatniej-wyslij-na 123456789012345678 987654321098765432`"
+          "Przykład: `=wynik-wslij-na 123456789012345678 987654321098765432`"
         );
         return;
       }
