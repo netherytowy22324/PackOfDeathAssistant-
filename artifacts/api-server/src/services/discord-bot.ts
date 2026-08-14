@@ -26,7 +26,7 @@ import { sendChatMessage, getMcBotStatus, restartMinecraft, setVerificationSucce
 import { getRconStatus } from "./rcon.js";
 import { db } from "@workspace/db";
 import { verifiedUsersTable, pendingFormAnswersTable, vacationRequestsTable } from "@workspace/db";
-import { and, eq, lt, lte } from "drizzle-orm";
+import { asc, eq, gte, lt, lte } from "drizzle-orm";
 
 const DISCORD_TOKEN = process.env["DISCORD_TOKEN"] ?? "";
 const GUILD_ID = process.env["DISCORD_GUILD_ID"] ?? "";
@@ -857,6 +857,7 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
       { name: "=wynik-formularz", desc: "Wysyła formularz wyniku rekrutacji (rekruterzy/admini)" },
       { name: "=formularz-wyniki", desc: "Alias formularza wyniku rekrutacji (rekruterzy/admini)" },
       { name: "=urlop-panel", desc: "Wysyła profesjonalny panel składania wniosku urlopowego" },
+      { name: "=urlopy", desc: "Wyświetla wszystkie aktywne i zaplanowane urlopy" },
       { name: "=wynik-test-formularz", desc: "Wysyła przykładowy testowy wynik rekrutacji do podglądu wyglądu" },
       { name: "=wynik-test-ftomularz", desc: "Alias testowego formularza wyniku rekrutacji" },
       { name: "=wynik-test-ostatniej-wyslij-na <id_kanału> <id_wiadomości>", desc: "Przekazuje wiadomość z wynikiem rekrutacji na wskazany kanał" },
@@ -1961,6 +1962,94 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         components: [vacationRow],
       });
       await message.reply("✅ Panel urlopowy został wysłany.");
+      break;
+    }
+
+    case "urlopy": {
+      if (!isAdmin(message)) {
+        await message.reply("❌ Brak uprawnień. Listę urlopów może wyświetlić tylko administracja.");
+        return;
+      }
+      if (message.channel.isDMBased()) return;
+
+      try {
+        const now = new Date();
+        const vacations = await db
+          .select()
+          .from(vacationRequestsTable)
+          .where(gte(vacationRequestsTable.endDate, now))
+          .orderBy(asc(vacationRequestsTable.startDate));
+
+        if (vacations.length === 0) {
+          await (message.channel as TextChannel).send({
+            embeds: [
+              new EmbedBuilder()
+                .setAuthor({ name: "PackSMP • System urlopów" })
+                .setTitle("🏖️ Aktywne urlopy")
+                .setColor(0x5865F2)
+                .setDescription("Aktualnie nie ma aktywnych ani zaplanowanych urlopów.")
+                .setFooter({ text: "PackSMP • Urlopy" })
+                .setTimestamp(),
+            ],
+          });
+          await message.reply("✅ Lista urlopów została wysłana.");
+          break;
+        }
+
+        const embeds: EmbedBuilder[] = [];
+        let currentEmbed = new EmbedBuilder()
+          .setAuthor({ name: "PackSMP • System urlopów" })
+          .setTitle("🏖️ Aktywne i zaplanowane urlopy")
+          .setColor(0x5865F2)
+          .setDescription("Lista urlopów zapisanych w systemie.")
+          .setFooter({ text: `PackSMP • Łącznie: ${vacations.length}` })
+          .setTimestamp();
+        let currentCharacters = 0;
+
+        for (const vacation of vacations) {
+          const status = vacation.startDate > now ? "🕒 Zaplanowany" : "🟢 Aktywny";
+          const value = [
+            `👤 <@${vacation.userId}>`,
+            `🎮 Nick MC: \`${vacation.mcNick.slice(0, 100)}\``,
+            `📅 **${formatVacationDate(vacation.startDate)} → ${formatVacationDate(vacation.endDate)}**`,
+            status,
+            `📝 ${vacation.reason.slice(0, 450)}`,
+          ].join("\n");
+
+          if (currentEmbed.data.fields?.length && (
+            currentEmbed.data.fields.length >= 20 ||
+            currentCharacters + value.length > 5000
+          )) {
+            embeds.push(currentEmbed);
+            currentEmbed = new EmbedBuilder()
+              .setAuthor({ name: "PackSMP • System urlopów" })
+              .setTitle("🏖️ Lista urlopów — dalsza część")
+              .setColor(0x5865F2)
+              .setFooter({ text: `PackSMP • Łącznie: ${vacations.length}` })
+              .setTimestamp();
+            currentCharacters = 0;
+          }
+
+          currentEmbed.addFields({
+            name: `🏷️ ${vacation.mcNick.slice(0, 180)}`,
+            value,
+            inline: false,
+          });
+          currentCharacters += value.length;
+        }
+        if (currentEmbed.data.fields?.length) embeds.push(currentEmbed);
+
+        for (let index = 0; index < embeds.length; index += 10) {
+          await (message.channel as TextChannel).send({
+            embeds: embeds.slice(index, index + 10),
+            allowedMentions: { parse: [] },
+          });
+        }
+        await message.reply(`✅ Wysłano listę ${vacations.length} urlopów.`);
+      } catch (err) {
+        logger.warn({ err: String(err) }, "Failed to list vacation requests");
+        await message.reply("❌ Nie udało się pobrać listy urlopów z bazy.");
+      }
       break;
     }
 
