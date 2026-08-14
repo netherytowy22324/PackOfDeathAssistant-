@@ -1203,14 +1203,14 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
           name: "PackSMP • Centrum administracji",
           iconURL: message.guild?.iconURL({ extension: "png", size: 128 }) ?? undefined,
         })
-        .setTitle("🛡️ PackSMP — Komendy Administracyjne")
+        .setTitle("📚 PackSMP — Wszystkie komendy")
         .setColor(0x5865F2)
         .setDescription(
-          "Pełna lista komend administracyjnych i rekrutacyjnych.\n" +
-          "Komendy wyników rekrutacji są dostępne dla administracji oraz rekruterów."
+          "Pełna lista komend Discord, administracyjnych, SMP i Minecraft.\n" +
+          "Komendy administracyjne wymagają odpowiednich uprawnień."
         )
-        .addFields(...buildFields(ADMIN_CMD_REGISTRY))
-        .setFooter({ text: "PackSMP • Panel administracyjny" })
+        .addFields(...buildFields(ALL_CMD_REGISTRY))
+        .setFooter({ text: "PackSMP • Panel administracyjny • =pomocadminpanel" })
         .setTimestamp();
       await message.reply({ embeds: [embed] });
       break;
