@@ -181,6 +181,52 @@ const TICKET_FORMS: Record<TicketType, TicketForm> = {
   },
 };
 
+const RESULT_FORM_PAGES: TicketFormField[][] = [
+  [
+    { id: "status",       label: "Status rekrutacji", placeholder: "zdana lub niezdana", style: TextInputStyle.Short },
+    { id: "participant",  label: "Uczestnik",         placeholder: "@osoba lub nick Discord", style: TextInputStyle.Short },
+    { id: "examiner",     label: "Egzaminator",       placeholder: "np. @CWT | IzraelskiMichal", style: TextInputStyle.Short },
+    { id: "pvp_level",    label: "Poziom PvP",        placeholder: "np. T3", style: TextInputStyle.Short },
+    { id: "total_result", label: "Łączny wynik",      placeholder: "np. IzraelskiMichal 10-0", style: TextInputStyle.Short },
+  ],
+  [
+    {
+      id: "rounds",
+      label: "Wyniki rund",
+      placeholder: "Jedna runda w jednej linii, np. Castplay.pl 1-0",
+      style: TextInputStyle.Paragraph,
+    },
+    {
+      id: "notes",
+      label: "Uwagi",
+      placeholder: "Brak dodatkowych uwag",
+      style: TextInputStyle.Paragraph,
+      required: false,
+    },
+  ],
+];
+
+const TEST_RESULT_ANSWERS: Record<string, string> = {
+  status: "niezdana",
+  participant: "@SLIMAK WODNY",
+  examiner: "@CWT | IzraelskiMichal",
+  pvp_level: "T3",
+  rounds: [
+    "Castplay.pl 1-0",
+    "Castplay.pl 1-0",
+    "Castplay.pl 1-0",
+    "Castplay.pl 1-0",
+    "Diamond SMP 1-0",
+    "Diamond SMP 1-0",
+    "Diamond SMP 1-0",
+    "Netherite + Pot 1-0",
+    "Netherite + Pot 1-0",
+    "Netherite + Pot 1-0",
+  ].join("\n"),
+  total_result: "IzraelskiMichal 10-0",
+  notes: "Brak dodatkowych uwag",
+};
+
 let client: Client | null = null;
 let isReady = false;
 let isConnecting = false;
@@ -656,6 +702,10 @@ function isAdmin(message: Message): boolean {
     message.member.permissions.has(PermissionsBitField.Flags.ManageGuild);
 }
 
+function hasRecruiterAccess(message: Message): boolean {
+  return isAdmin(message) || Boolean(message.member?.roles.cache.has(RECRUIT_ROLE_ID));
+}
+
 function isModerator(message: Message): boolean {
   if (!message.member) return false;
   return isAdmin(message) || message.member.roles.cache.has(MODERATOR_ROLE_ID);
@@ -689,6 +739,12 @@ export const PLAYER_CMD_REGISTRY: CmdSection[] = [
       { name: "=weryfikacja-usun",             desc: "Odłącz swoje konto MC od Discorda" },
     ],
   },
+  {
+    emoji: "🎫", header: "Tickety",
+    cmds: [
+      { name: "=rekruter",                     desc: "Dodaje rangę rekruterów do bieżącego ticketu" },
+    ],
+  },
 ];
 
 export const ADMIN_CMD_REGISTRY: CmdSection[] = [
@@ -696,6 +752,9 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
     emoji: "🎫", header: "Tickety",
     cmds: [
       { name: "=formularz [typ]", desc: "Wysyła formularz do bieżącego kanału ticketu (typ: rekrutacja/sojusz/konkurs/walka). Jeśli typ pominięty — auto-wykrywa z nazwy kanału." },
+      { name: "=wynik-formularz / =formularz-wyniki", desc: "Wysyła formularz do publikowania wyniku rekrutacji (rekruterzy/admini)" },
+      { name: "=wynik-test-formularz", desc: "Wysyła przykładowy testowy wynik rekrutacji do podglądu wyglądu (alias: =wynik-test-ftomularz)" },
+      { name: "=wstrzymaj-ticket [powód]", desc: "Oznacza ticket jako wstrzymany i publikuje powód w kanale" },
     ],
   },
   {
@@ -822,6 +881,146 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         .setFooter({ text: "PackSMP • Komenda: =helpAllCommands" })
         .setTimestamp();
       await message.reply({ embeds: [embed] });
+      break;
+    }
+
+    case "rekruter": {
+      if (!message.guild || message.channel.isDMBased()) return;
+
+      const channel = message.channel as TextChannel;
+      const ticket = await detectTicketChannel(channel);
+      if (!ticket) {
+        await message.reply("❌ Tej komendy można użyć tylko na kanale ticketu.");
+        return;
+      }
+
+      const botMember = message.guild.members.me ?? await message.guild.members.fetchMe();
+      if (!botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+        await message.reply("❌ Bot nie ma uprawnienia **Zarządzanie kanałami**.");
+        return;
+      }
+
+      const role = await message.guild.roles.fetch(RECRUIT_ROLE_ID);
+      if (!role) {
+        await message.reply(`❌ Nie znaleziono rangi rekruterów o ID \`${RECRUIT_ROLE_ID}\`.`);
+        return;
+      }
+
+      try {
+        await channel.permissionOverwrites.edit(role, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+          AttachFiles: true,
+          EmbedLinks: true,
+        }, { reason: `Komenda =rekruter użyta przez ${message.author.tag}` });
+
+        await message.reply(
+          `✅ Dodano dostęp rangi ${role} do tego ticketu.\n` +
+          `Każda osoba posiadająca tę rangę może teraz wejść i pisać na kanale.`
+        );
+      } catch (err) {
+        logger.warn({ err: String(err), channelId: channel.id, roleId: RECRUIT_ROLE_ID }, "Failed to grant recruiter ticket access");
+        await message.reply("❌ Nie udało się dodać rangi rekruterów do ticketu. Sprawdź uprawnienia bota.");
+      }
+      break;
+    }
+
+    case "wynik-formularz":
+    case "formularz-wyniki": {
+      if (!hasRecruiterAccess(message)) {
+        await message.reply("❌ Ta komenda jest dostępna tylko dla rekruterów i administracji.");
+        return;
+      }
+      if (message.channel.isDMBased()) return;
+
+      const channel = message.channel as TextChannel;
+      const pageButtons = RESULT_FORM_PAGES.map((_, pageIndex) =>
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`wynik_form_page:${pageIndex}`)
+            .setLabel(`📝 Wynik rekrutacji — strona ${pageIndex + 1}/${RESULT_FORM_PAGES.length}`)
+            .setStyle(ButtonStyle.Primary),
+        )
+      );
+
+      const panelEmbed = new EmbedBuilder()
+        .setTitle("📝 Formularz wyniku rekrutacji")
+        .setColor(0x5865F2)
+        .setDescription(
+          "Wypełnij formularz, aby opublikować wynik rekrutacji w czytelnej formie.\n\n" +
+          "Uzupełnij obie strony, a bot wyśle gotowy embed na ten kanał."
+        )
+        .setFooter({ text: "PackSMP • Wyniki rekrutacji" })
+        .setTimestamp();
+
+      await channel.send({ embeds: [panelEmbed], components: pageButtons });
+      await message.reply("✅ Formularz wyniku rekrutacji został wysłany.");
+      break;
+    }
+
+    case "wstrzymaj-ticket": {
+      if (!hasRecruiterAccess(message)) {
+        await message.reply("❌ Ta komenda jest dostępna tylko dla rekruterów i administracji.");
+        return;
+      }
+      if (!message.guild || message.channel.isDMBased()) return;
+
+      const channel = message.channel as TextChannel;
+      const ticket = await detectTicketChannel(channel);
+      if (!ticket) {
+        await message.reply("❌ Tej komendy można użyć tylko na kanale ticketu.");
+        return;
+      }
+
+      const reason = args.join(" ").trim() || "przemyślenie dotyczące rekrutacji";
+      const guildIcon = message.guild.iconURL({ extension: "png", size: 256 });
+      const ticketOwner = ticket.userId ? `<@${ticket.userId}>` : "Zgłaszający";
+      const holdEmbed = new EmbedBuilder()
+        .setAuthor({ name: "PackSMP • Status ticketu" })
+        .setTitle("⏸️ Ticket wstrzymany")
+        .setColor(0xFEE75C)
+        .setDescription(
+          `${ticketOwner}\n\n` +
+          `Ten ticket został **wstrzymany** przez administrację.\n\n` +
+          `**📌 Powód wstrzymania:**\n${reason.slice(0, 1500)}\n\n` +
+          `⏳ Oczekuje na dalszą decyzję administracji.`
+        )
+        .addFields({
+          name: "👤 Wstrzymał:",
+          value: message.member?.displayName ?? message.author.username,
+          inline: true,
+        })
+        .setFooter({ text: "PackSMP • Ticket wstrzymany" })
+        .setTimestamp();
+
+      if (guildIcon) holdEmbed.setThumbnail(guildIcon);
+
+      await channel.send({
+        content: ticket.userId ? `<@${ticket.userId}>` : "⏸️",
+        embeds: [holdEmbed],
+        allowedMentions: ticket.userId ? { users: [ticket.userId] } : { parse: [] },
+      });
+      await message.reply("✅ Ticket został oznaczony jako wstrzymany.");
+      break;
+    }
+
+    case "wynik-test-formularz":
+    case "wynik-test-ftomularz": {
+      if (!hasRecruiterAccess(message)) {
+        await message.reply("❌ Ta komenda jest dostępna tylko dla rekruterów i administracji.");
+        return;
+      }
+      if (message.channel.isDMBased()) return;
+
+      const guildIcon = message.guild?.iconURL({ extension: "png", size: 256 });
+      const testEmbed = buildRecruitmentResultEmbed(TEST_RESULT_ANSWERS, true, guildIcon);
+      await (message.channel as TextChannel).send({
+        content: "🧪 **TESTOWY WYNIK REKRUTACJI — to nie jest prawdziwe podanie**",
+        embeds: [testEmbed],
+        allowedMentions: { parse: [] },
+      });
+      await message.reply("✅ Wysłano testowy wynik rekrutacji.");
       break;
     }
 
@@ -1610,6 +1809,38 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
     return;
   }
 
+  if (interaction.customId.startsWith("wynik_form_page:")) {
+    const pageIndex = parseInt(interaction.customId.split(":")[1] ?? "0", 10);
+    const page = RESULT_FORM_PAGES[pageIndex];
+    if (!page) {
+      await interaction.reply({ content: "❌ Ta strona formularza jest nieprawidłowa.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    const storeKey = `wynik:${interaction.channelId}:${interaction.user.id}`;
+    if (pageIndex === 0) await dbDeleteFormAnswers(storeKey);
+
+    const modal = new ModalBuilder()
+      .setCustomId(`wynik_modal:${interaction.channelId}:${interaction.user.id}:${pageIndex}`)
+      .setTitle(`Wynik rekrutacji — ${pageIndex + 1}/${RESULT_FORM_PAGES.length}`);
+
+    modal.addComponents(
+      ...page.map((field) =>
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId(field.id)
+            .setLabel(field.label.slice(0, 45))
+            .setPlaceholder(field.placeholder.slice(0, 100))
+            .setStyle(field.style)
+            .setRequired(field.required ?? true)
+        )
+      )
+    );
+
+    await interaction.showModal(modal);
+    return;
+  }
+
   if (interaction.customId === "verify_generate") {
     const result = await generateVerificationCode(interaction.user.id);
     if ("error" in result) {
@@ -1891,6 +2122,11 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
 }
 
 async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+  if (interaction.customId.startsWith("wynik_modal:")) {
+    await handleResultFormModalSubmit(interaction);
+    return;
+  }
+
   if (!interaction.customId.startsWith("modal_form:")) return;
 
   // Acknowledge immediately — DB calls below can take >3s and Discord would
@@ -2009,6 +2245,120 @@ async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<v
   });
 
   await logEvent("info", "ticket", `Formularz ${ticketType} wypełniony przez ${interaction.user.tag} (${interaction.user.id})`);
+}
+
+function buildRecruitmentResultEmbed(
+  answers: Record<string, string>,
+  isTest: boolean,
+  guildIcon?: string | null,
+): EmbedBuilder {
+  const status = (answers.status ?? "").toLowerCase();
+  const isRejected = status.includes("nie") || status.includes("odrzu") || status.includes("fail");
+  const resultTitle = `${isTest ? "🧪 TEST • " : ""}${isRejected ? "🚩 Rekrutacja niezdana" : "✅ Rekrutacja zdana"}`;
+  const resultColor = isRejected ? 0xED4245 : 0x57F287;
+  const participant = answers.participant ?? "*(brak odpowiedzi)*";
+  const examiner = answers.examiner ?? "*(brak odpowiedzi)*";
+  const pvpLevel = answers.pvp_level ?? "*(brak odpowiedzi)*";
+  const totalResult = answers.total_result ?? "*(brak odpowiedzi)*";
+  const rounds = (answers.rounds ?? "*(brak odpowiedzi)*")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `🔵 ${line}`)
+    .join("\n") || "*(brak odpowiedzi)*";
+  const notes = answers.notes ?? "*(brak odpowiedzi)*";
+
+  const embed = new EmbedBuilder()
+    .setAuthor({ name: isTest ? "PackSMP • Podgląd testowy" : "PackSMP • Wynik rekrutacji" })
+    .setTitle(resultTitle)
+    .setColor(resultColor)
+    .setDescription(
+      `${participant} ${isRejected ? "🚩 nie zdał(a) rekrutacji." : "✅ zdał(a) rekrutację."}`
+    )
+    .addFields(
+      { name: "👥 Uczestnik:", value: participant.slice(0, 1024), inline: false },
+      { name: "⚙️ Egzaminator:", value: examiner.slice(0, 1024), inline: false },
+      { name: "🏅 Poziom PvP:", value: pvpLevel.slice(0, 1024), inline: false },
+      { name: "📊 Wyniki walk:", value: rounds.slice(0, 1024), inline: false },
+      { name: "🏅 Łączny wynik:", value: totalResult.slice(0, 1024), inline: false },
+      { name: "Uwagi:", value: notes.slice(0, 1024), inline: false },
+    )
+    .setFooter({
+      text: isTest
+        ? "PackSMP • TEST — przykładowy wynik, nie jest prawdziwym podaniem"
+        : "PackSMP • Wynik rekrutacji",
+    })
+    .setTimestamp();
+
+  if (guildIcon) embed.setThumbnail(guildIcon);
+  return embed;
+}
+
+async function handleResultFormModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const parts = interaction.customId.split(":");
+  const channelId = parts[1] ?? interaction.channelId;
+  const pageIndex = parseInt(parts[3] ?? "0", 10);
+  const page = RESULT_FORM_PAGES[pageIndex];
+
+  if (!page) {
+    await interaction.editReply({ content: "❌ Ta strona formularza jest nieprawidłowa." });
+    return;
+  }
+
+  const storeKey = `wynik:${channelId}:${interaction.user.id}`;
+  const stored = await dbGetFormAnswers(storeKey);
+  for (const field of page) {
+    try {
+      stored[field.id] = interaction.fields.getTextInputValue(field.id).trim() || "*(brak odpowiedzi)*";
+    } catch {
+      stored[field.id] = "*(brak odpowiedzi)*";
+    }
+  }
+  await dbSetFormAnswers(storeKey, interaction.user.id, "wynik", stored);
+
+  const allPagesDone = RESULT_FORM_PAGES
+    .flat()
+    .every((field) => stored[field.id] !== undefined);
+
+  if (!allPagesDone) {
+    await interaction.editReply({
+      content: `✅ Strona ${pageIndex + 1}/${RESULT_FORM_PAGES.length} zapisana. Uzupełnij drugą stronę formularza.`,
+    });
+    return;
+  }
+
+  await dbDeleteFormAnswers(storeKey);
+
+  const guildIcon = interaction.guild?.iconURL({ extension: "png", size: 256 });
+  const resultEmbed = buildRecruitmentResultEmbed(stored, false, guildIcon);
+  const participant = stored.participant ?? "*(brak odpowiedzi)*";
+
+  let channel = interaction.channel as TextChannel | null;
+  if (!channel && interaction.channelId) {
+    try {
+      channel = (await interaction.client.channels.fetch(interaction.channelId)) as TextChannel;
+    } catch (err) {
+      logger.warn({ err: String(err), channelId: interaction.channelId }, "Could not fetch result form channel");
+    }
+  }
+
+  if (channel?.isTextBased()) {
+    const participantMentionIds = [...participant.matchAll(/<@!?(\d+)>/g)].map((match) => match[1]!);
+    await channel.send({
+      content: participantMentionIds.length > 0 ? participant : "📋 **Nowy wynik rekrutacji**",
+      embeds: [resultEmbed],
+      allowedMentions: participantMentionIds.length > 0 ? { users: participantMentionIds } : { parse: [] },
+    });
+  } else {
+    logger.error({ channelId: interaction.channelId }, "Result form channel unavailable");
+  }
+
+  await interaction.editReply({
+    content: "✅ Wynik rekrutacji został opublikowany na tym kanale.",
+  });
+  await logEvent("info", "ticket", `Wynik rekrutacji opublikowany przez ${interaction.user.tag} (${interaction.user.id})`);
 }
 
 export async function createVerificationPanel(channel: TextChannel): Promise<void> {
