@@ -227,6 +227,36 @@ const TEST_RESULT_ANSWERS: Record<string, string> = {
   notes: "Brak dodatkowych uwag",
 };
 
+const VACATION_NICK_PREFIX = "『URLOP』";
+
+function parseVacationDate(input: string): Date | null {
+  const match = input.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (!match) return null;
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function formatVacationDate(date: Date): string {
+  return date.toLocaleDateString("pl-PL", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 let client: Client | null = null;
 let isReady = false;
 let isConnecting = false;
@@ -754,6 +784,7 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
       { name: "=formularz [typ]", desc: "Wysyła formularz do bieżącego kanału ticketu (typ: rekrutacja/sojusz/konkurs/walka). Jeśli typ pominięty — auto-wykrywa z nazwy kanału." },
       { name: "=wynik-formularz", desc: "Wysyła formularz wyniku rekrutacji (rekruterzy/admini)" },
       { name: "=formularz-wyniki", desc: "Alias formularza wyniku rekrutacji (rekruterzy/admini)" },
+      { name: "=urlop-panel", desc: "Wysyła profesjonalny panel składania wniosku urlopowego" },
       { name: "=wynik-test-formularz", desc: "Wysyła przykładowy testowy wynik rekrutacji do podglądu wyglądu" },
       { name: "=wynik-test-ftomularz", desc: "Alias testowego formularza wyniku rekrutacji" },
       { name: "=wynik-test-ostatniej-wyslij-na <id_kanału> <id_wiadomości>", desc: "Przekazuje wiadomość z wynikiem rekrutacji na wskazany kanał" },
@@ -1808,6 +1839,59 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       break;
     }
 
+    case "urlop-panel": {
+      if (!isAdmin(message)) {
+        await message.reply("❌ Brak uprawnień. Panel urlopowy może wysłać tylko administracja.");
+        return;
+      }
+      if (message.channel.isDMBased()) return;
+
+      const vacationEmbed = new EmbedBuilder()
+        .setAuthor({
+          name: "PackSMP • System urlopów",
+          iconURL: message.guild?.iconURL({ extension: "png", size: 128 }) ?? undefined,
+        })
+        .setTitle("🏖️ Wniosek urlopowy")
+        .setColor(0x5865F2)
+        .setDescription(
+          "Potrzebujesz przerwy od serwera? Złóż wniosek urlopowy w kilku sekundach.\n\n" +
+          "Kliknij przycisk poniżej i uzupełnij wszystkie pola. Maksymalny czas urlopu to **7 dni**."
+        )
+        .addFields(
+          {
+            name: "📋 Formularz zawiera",
+            value: "Nick Minecraft • powód urlopu • data rozpoczęcia • data zakończenia",
+            inline: false,
+          },
+          {
+            name: "📅 Format daty",
+            value: "Wpisz daty jako `DD.MM.RRRR`, np. `1.08.2026` — `8.08.2026`.",
+            inline: false,
+          },
+          {
+            name: "🏷️ Po wysłaniu",
+            value: "Twój nick Discord otrzyma prefiks `『URLOP』`, a wniosek zostanie opublikowany na tym kanale.",
+            inline: false,
+          },
+        )
+        .setFooter({ text: "PackSMP • Urlopy • Maksymalnie 7 dni" })
+        .setTimestamp();
+
+      const vacationRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId("urlop_form_open")
+          .setLabel("🏖️ Złóż wniosek urlopowy")
+          .setStyle(ButtonStyle.Primary),
+      );
+
+      await (message.channel as TextChannel).send({
+        embeds: [vacationEmbed],
+        components: [vacationRow],
+      });
+      await message.reply("✅ Panel urlopowy został wysłany.");
+      break;
+    }
+
     case "smp-panel":
     case "smp": {
       const smpEmbed = new EmbedBuilder()
@@ -1933,6 +2017,50 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
             .setRequired(field.required ?? true)
         )
       )
+    );
+
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (interaction.customId === "urlop_form_open") {
+    const modal = new ModalBuilder()
+      .setCustomId("urlop_modal")
+      .setTitle("🏖️ Wniosek urlopowy");
+
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("mc_nick")
+          .setLabel("Nick Minecraft")
+          .setPlaceholder("np. Steve123")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("vacation_reason")
+          .setLabel("Powód urlopu")
+          .setPlaceholder("Napisz krótko, dlaczego potrzebujesz urlopu")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("vacation_from")
+          .setLabel("Urlop od")
+          .setPlaceholder("DD.MM.RRRR, np. 1.08.2026")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("vacation_to")
+          .setLabel("Urlop do")
+          .setPlaceholder("DD.MM.RRRR, np. 8.08.2026")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true),
+      ),
     );
 
     await interaction.showModal(modal);
@@ -2219,7 +2347,153 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
   }
 }
 
+async function handleVacationModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const getValue = (id: string): string => {
+    try {
+      return interaction.fields.getTextInputValue(id).trim();
+    } catch {
+      return "";
+    }
+  };
+
+  const mcNick = getValue("mc_nick");
+  const reason = getValue("vacation_reason");
+  const fromInput = getValue("vacation_from");
+  const toInput = getValue("vacation_to");
+  const fromDate = parseVacationDate(fromInput);
+  const toDate = parseVacationDate(toInput);
+
+  if (!mcNick || !reason || !fromDate || !toDate) {
+    await interaction.editReply({
+      content: "❌ Uzupełnij wszystkie pola. Daty muszą mieć format `DD.MM.RRRR`, np. `1.08.2026`.",
+    });
+    return;
+  }
+
+  const durationDays = Math.round((toDate.getTime() - fromDate.getTime()) / 86_400_000);
+  if (durationDays < 1) {
+    await interaction.editReply({ content: "❌ Data zakończenia musi być późniejsza niż data rozpoczęcia." });
+    return;
+  }
+  if (durationDays > 7) {
+    await interaction.editReply({ content: "❌ Urlop może trwać maksymalnie **7 dni**." });
+    return;
+  }
+
+  const guild = interaction.guild;
+  if (!guild) {
+    await interaction.editReply({ content: "❌ Formularz urlopowy działa tylko na serwerze Discord." });
+    return;
+  }
+
+  const member = await guild.members.fetch(interaction.user.id);
+  const botMember = guild.members.me ?? await guild.members.fetchMe();
+  const currentNickname = member.nickname?.trim() || member.user.username;
+  const nicknameWithoutPrefix = currentNickname.startsWith(VACATION_NICK_PREFIX)
+    ? currentNickname.slice(VACATION_NICK_PREFIX.length).trimStart()
+    : currentNickname;
+  const nicknameBase = nicknameWithoutPrefix || member.user.username;
+  const vacationNickname = `${VACATION_NICK_PREFIX} ${nicknameBase}`.slice(0, 32);
+
+  let nicknameChanged = false;
+  let nicknameError: string | null = null;
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageNicknames)) {
+    nicknameError = "Bot nie ma uprawnienia **Zarządzanie pseudonimami**.";
+  } else if (!member.manageable) {
+    nicknameError = "Bot nie może zmienić nicku tej osoby — sprawdź hierarchię ról.";
+  } else {
+    try {
+      await member.setNickname(vacationNickname, `Wniosek urlopowy: ${fromInput} - ${toInput}`);
+      nicknameChanged = true;
+    } catch (err) {
+      logger.warn({ err: String(err), userId: member.id }, "Failed to set vacation nickname");
+      nicknameError = "Discord nie pozwolił automatycznie zmienić nicku — sprawdź uprawnienia bota.";
+    }
+  }
+
+  let channel = interaction.channel as TextChannel | null;
+  if (!channel && interaction.channelId) {
+    try {
+      channel = (await interaction.client.channels.fetch(interaction.channelId)) as TextChannel;
+    } catch (err) {
+      logger.warn({ err: String(err), channelId: interaction.channelId }, "Could not fetch vacation form channel");
+    }
+  }
+
+  if (!channel?.isTextBased() || channel.isDMBased()) {
+    await interaction.editReply({
+      content: nicknameChanged
+        ? "✅ Nick zmieniono, ale nie udało się znaleźć kanału do opublikowania wniosku."
+        : "❌ Nie udało się znaleźć kanału do opublikowania wniosku.",
+    });
+    return;
+  }
+
+  const vacationEmbed = new EmbedBuilder()
+    .setAuthor({
+      name: "PackSMP • System urlopów",
+      iconURL: guild.iconURL({ extension: "png", size: 128 }) ?? undefined,
+    })
+    .setTitle("🏖️ Nowy wniosek urlopowy")
+    .setColor(nicknameChanged ? 0x57F287 : 0xFEE75C)
+    .setDescription(`<@${member.id}> złożył(a) wniosek urlopowy.`)
+    .addFields(
+      { name: "👤 Użytkownik Discord", value: `<@${member.id}>`, inline: true },
+      { name: "🎮 Nick Minecraft", value: `\`${mcNick.slice(0, 100)}\``, inline: true },
+      {
+        name: "📅 Termin urlopu",
+        value: `**Od:** ${formatVacationDate(fromDate)}\n**Do:** ${formatVacationDate(toDate)}\n**Czas:** ${durationDays} ${durationDays === 1 ? "dzień" : "dni"}`,
+        inline: false,
+      },
+      { name: "📝 Powód", value: reason.slice(0, 1024), inline: false },
+      {
+        name: "🏷️ Zmiana nicku",
+        value: nicknameChanged
+          ? `✅ Ustawiono: \`${vacationNickname}\``
+          : `⚠️ ${nicknameError ?? "Nie udało się zmienić nicku."}`,
+        inline: false,
+      },
+    )
+    .setFooter({ text: "PackSMP • Wniosek urlopowy" })
+    .setTimestamp();
+
+  try {
+    await channel.send({
+      content: `<@${member.id}>`,
+      embeds: [vacationEmbed],
+      allowedMentions: { users: [member.id] },
+    });
+  } catch (err) {
+    logger.warn({ err: String(err), channelId: channel.id, userId: member.id }, "Failed to publish vacation request");
+    await interaction.editReply({
+      content: nicknameChanged
+        ? "✅ Nick zmieniono, ale nie udało się opublikować wniosku. Sprawdź uprawnienia bota na kanale."
+        : "❌ Nie udało się opublikować wniosku. Sprawdź uprawnienia bota na kanale.",
+    });
+    return;
+  }
+
+  await interaction.editReply({
+    content: nicknameChanged
+      ? `✅ Wniosek urlopowy został wysłany. Twój nick zmieniono na \`${vacationNickname}\`.`
+      : `⚠️ Wniosek urlopowy został wysłany, ale nick nie został zmieniony.\n${nicknameError ?? ""}`,
+  });
+  await logEvent(
+    "info",
+    "discord",
+    `Wniosek urlopowy od ${interaction.user.tag}: ${fromInput} - ${toInput}`,
+    JSON.stringify({ userId: member.id, mcNick, durationDays, nicknameChanged }),
+  );
+}
+
 async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+  if (interaction.customId === "urlop_modal") {
+    await handleVacationModalSubmit(interaction);
+    return;
+  }
+
   if (interaction.customId.startsWith("wynik_modal:")) {
     await handleResultFormModalSubmit(interaction);
     return;
