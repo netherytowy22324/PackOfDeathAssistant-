@@ -75,7 +75,9 @@ app.listen(port, async (err) => {
   }
 
   // Connect Minecraft bot (disabled in dev to avoid duplicate_login with production)
-  const mcEnabled = process.env["MC_BOT_ENABLED"] !== "false";
+  // Keep Minecraft/RCON opt-in so a deployment cannot connect accidentally
+  // when the hosting provider has not loaded its environment variables yet.
+  const mcEnabled = process.env["MC_BOT_ENABLED"] === "true";
   if (mcEnabled) {
     logger.info("Starting Minecraft bot...");
     connectMinecraft();
