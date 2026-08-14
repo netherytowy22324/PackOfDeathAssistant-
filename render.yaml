@@ -3,15 +3,13 @@ services:
     name: packsmp-discord-api
     runtime: node
     plan: free
-    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false
     startCommand: pnpm --filter @workspace/db run push && pnpm --filter @workspace/api-server run prod
     healthCheckPath: /api/healthz
     autoDeploy: true
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: packsmp-postgres
-          property: connectionString
+        sync: false
       - key: NODE_ENV
         value: production
       - key: DISCORD_BOT_ENABLED
@@ -29,7 +27,3 @@ services:
         sync: false
       - key: DISCORD_VERIFY_ROLE_ID
         sync: false
-
-databases:
-  - name: packsmp-postgres
-    plan: free
