@@ -756,7 +756,7 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
       { name: "=formularz-wyniki", desc: "Alias formularza wyniku rekrutacji (rekruterzy/admini)" },
       { name: "=wynik-test-formularz", desc: "Wysyła przykładowy testowy wynik rekrutacji do podglądu wyglądu" },
       { name: "=wynik-test-ftomularz", desc: "Alias testowego formularza wyniku rekrutacji" },
-      { name: "=wynik-test-ostatni-wyslij-na <id_kanału>", desc: "Wysyła ostatni testowy wynik rekrutacji na wskazany kanał" },
+      { name: "=wynik-test-ostatniej-wyslij-na <id_kanału> <id_wiadomości>", desc: "Przekazuje wiadomość z wynikiem rekrutacji na wskazany kanał" },
       { name: "=wstrzymaj-ticket [powód]", desc: "Oznacza ticket jako wstrzymany i publikuje powód w kanale" },
     ],
   },
@@ -1045,6 +1045,7 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       break;
     }
 
+    case "wynik-test-ostatniej-wyslij-na":
     case "wynik-test-ostatni-wyslij-na": {
       if (!hasRecruiterAccess(message)) {
         await message.reply("❌ Ta komenda jest dostępna tylko dla rekruterów i administracji.");
@@ -1054,10 +1055,11 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
 
       const rawChannelId = args[0]?.trim() ?? "";
       const channelId = rawChannelId.match(/^<#(\d+)>$/)?.[1] ?? rawChannelId;
-      if (!/^\d{15,25}$/.test(channelId)) {
+      const messageId = args[1]?.trim() ?? "";
+      if (!/^\d{15,25}$/.test(channelId) || !/^\d{15,25}$/.test(messageId)) {
         await message.reply(
-          "❌ Podaj poprawne ID kanału.\n" +
-          "Przykład: `=wynik-test-ostatni-wyslij-na 123456789012345678`"
+          "❌ Podaj poprawne ID kanału i ID wiadomości.\n" +
+          "Przykład: `=wynik-test-ostatniej-wyslij-na 123456789012345678 987654321098765432`"
         );
         return;
       }
@@ -1065,6 +1067,20 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       const target = await message.guild.channels.fetch(channelId).catch(() => null);
       if (!target || !target.isTextBased() || target.isDMBased()) {
         await message.reply("❌ Nie znaleziono tekstowego kanału o podanym ID na tym serwerze.");
+        return;
+      }
+
+      const sourceChannel = message.channel as TextChannel;
+      const sourceMessage = await sourceChannel.messages.fetch(messageId).catch(() => null);
+      if (!sourceMessage) {
+        await message.reply(
+          "❌ Nie znaleziono wiadomości o tym ID na kanale, na którym wpisujesz komendę. " +
+          "Bot musi też mieć dostęp do historii tego kanału."
+        );
+        return;
+      }
+      if (sourceMessage.embeds.length === 0) {
+        await message.reply("❌ Wskazana wiadomość nie zawiera embedu wyniku rekrutacji.");
         return;
       }
 
@@ -1083,17 +1099,15 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         return;
       }
 
-      const guildIcon = message.guild.iconURL({ extension: "png", size: 256 });
-      const testEmbed = buildRecruitmentResultEmbed(TEST_RESULT_ANSWERS, true, guildIcon);
       try {
         await targetChannel.send({
-          content: "🧪 **TESTOWY WYNIK REKRUTACJI — to nie jest prawdziwe podanie**",
-          embeds: [testEmbed],
+          content: sourceMessage.content.trim() || undefined,
+          embeds: sourceMessage.embeds.map((embed) => embed.toJSON()),
           allowedMentions: { parse: [] },
         });
-        await message.reply(`✅ Wysłano ostatni testowy wynik rekrutacji na ${targetChannel}.`);
+        await message.reply(`✅ Przekazano wiadomość z wynikiem rekrutacji na ${targetChannel}.`);
       } catch (err) {
-        logger.warn({ err: String(err), channelId }, "Failed to send test recruitment result to target channel");
+        logger.warn({ err: String(err), channelId, messageId }, "Failed to forward recruitment result message");
         await message.reply("❌ Nie udało się wysłać wyniku na wskazany kanał. Sprawdź uprawnienia bota.");
       }
       break;
