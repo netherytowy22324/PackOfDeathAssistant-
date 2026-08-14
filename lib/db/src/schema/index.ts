@@ -6,3 +6,4 @@ export * from "./chat_logs";
 export * from "./error_logs";
 export * from "./blacklist";
 export * from "./pending_form_answers";
+export * from "./vacation_requests";

@@ -25,8 +25,8 @@ import { logChat, logEvent, getRecentLogs, getRecentChats } from "./system-log.j
 import { sendChatMessage, getMcBotStatus, restartMinecraft, setVerificationSuccessCallback, getOnlinePlayers } from "./minecraft-bot.js";
 import { getRconStatus } from "./rcon.js";
 import { db } from "@workspace/db";
-import { verifiedUsersTable, pendingFormAnswersTable } from "@workspace/db";
-import { eq, lt } from "drizzle-orm";
+import { verifiedUsersTable, pendingFormAnswersTable, vacationRequestsTable } from "@workspace/db";
+import { and, eq, lt, lte } from "drizzle-orm";
 
 const DISCORD_TOKEN = process.env["DISCORD_TOKEN"] ?? "";
 const GUILD_ID = process.env["DISCORD_GUILD_ID"] ?? "";
@@ -91,6 +91,78 @@ export async function cleanupStaleFormAnswers(): Promise<void> {
     const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     await db.delete(pendingFormAnswersTable).where(lt(pendingFormAnswersTable.updatedAt, cutoff));
   } catch { /* ignore */ }
+}
+
+let vacationCleanupRunning = false;
+
+/**
+ * Restores nicknames for vacations that have ended.
+ * The active vacation is kept in PostgreSQL, so this also works after a restart.
+ */
+export async function cleanupExpiredVacations(): Promise<void> {
+  if (!client?.isReady() || vacationCleanupRunning) return;
+  vacationCleanupRunning = true;
+
+  try {
+    const expired = await db
+      .select()
+      .from(vacationRequestsTable)
+      .where(lte(vacationRequestsTable.endDate, new Date()));
+
+    if (expired.length === 0) return;
+
+    const guild = GUILD_ID
+      ? client.guilds.cache.get(GUILD_ID) ?? await client.guilds.fetch(GUILD_ID).catch(() => null)
+      : client.guilds.cache.first() ?? null;
+    if (!guild) {
+      logger.warn("Vacation cleanup skipped: guild unavailable");
+      return;
+    }
+
+    const botMember = guild.members.me ?? await guild.members.fetchMe();
+    if (!botMember.permissions.has(PermissionsBitField.Flags.ManageNicknames)) {
+      logger.warn("Vacation cleanup skipped: bot lacks ManageNicknames permission");
+      return;
+    }
+
+    for (const vacation of expired) {
+      try {
+        const member = await guild.members.fetch(vacation.userId).catch(() => null);
+        if (!member) {
+          await db.delete(vacationRequestsTable).where(eq(vacationRequestsTable.userId, vacation.userId));
+          continue;
+        }
+
+        const currentNickname = member.nickname?.trim() ?? "";
+        if (!currentNickname.startsWith(VACATION_NICK_PREFIX)) {
+          await db.delete(vacationRequestsTable).where(eq(vacationRequestsTable.userId, vacation.userId));
+          continue;
+        }
+        if (!member.manageable) {
+          logger.warn({ userId: vacation.userId }, "Vacation nickname cleanup blocked by role hierarchy");
+          continue;
+        }
+
+        const restoredNickname = (
+          currentNickname.slice(VACATION_NICK_PREFIX.length).trimStart() || member.user.username
+        ).slice(0, 32);
+        await member.setNickname(restoredNickname, "Urlop zakończony — usunięcie prefiksu 『URLOP』");
+        await db.delete(vacationRequestsTable).where(eq(vacationRequestsTable.userId, vacation.userId));
+        await logEvent(
+          "info",
+          "discord",
+          `Urlop zakończony — usunięto prefiks 『URLOP』 dla ${member.user.tag}`,
+          JSON.stringify({ userId: vacation.userId, endDate: vacation.endDate.toISOString() }),
+        );
+      } catch (err) {
+        logger.warn({ err: String(err), userId: vacation.userId }, "Failed to clean up expired vacation");
+      }
+    }
+  } catch (err) {
+    logger.warn({ err: String(err) }, "Expired vacation cleanup failed");
+  } finally {
+    vacationCleanupRunning = false;
+  }
 }
 
 const TICKET_FORMS: Record<TicketType, TicketForm> = {
@@ -2396,6 +2468,32 @@ async function handleVacationModalSubmit(interaction: ModalSubmitInteraction): P
     : currentNickname;
   const nicknameBase = nicknameWithoutPrefix || member.user.username;
   const vacationNickname = `${VACATION_NICK_PREFIX} ${nicknameBase}`.slice(0, 32);
+
+  try {
+    await db.insert(vacationRequestsTable)
+      .values({
+        userId: member.id,
+        mcNick: mcNick.slice(0, 100),
+        reason,
+        startDate: fromDate,
+        endDate: toDate,
+      })
+      .onConflictDoUpdate({
+        target: vacationRequestsTable.userId,
+        set: {
+          mcNick: mcNick.slice(0, 100),
+          reason,
+          startDate: fromDate,
+          endDate: toDate,
+        },
+      });
+  } catch (err) {
+    logger.error({ err: String(err), userId: member.id }, "Failed to save vacation request");
+    await interaction.editReply({
+      content: "❌ Nie udało się zapisać urlopu w bazie. Nick nie został zmieniony — spróbuj ponownie później.",
+    });
+    return;
+  }
 
   let nicknameChanged = false;
   let nicknameError: string | null = null;

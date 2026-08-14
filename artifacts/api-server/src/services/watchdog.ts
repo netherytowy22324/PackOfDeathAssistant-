@@ -4,7 +4,7 @@ import { getMcBotStatus, connectMinecraft } from "./minecraft-bot.js";
 import { connectRcon, getRconStatus } from "./rcon.js";
 import { logEvent } from "./system-log.js";
 import { cleanupExpiredCodes } from "./verification.js";
-import { cleanupStaleFormAnswers, backfillTicketForms } from "./discord-bot.js";
+import { cleanupExpiredVacations, cleanupStaleFormAnswers, backfillTicketForms } from "./discord-bot.js";
 
 const CHECK_INTERVAL_MS = 30 * 1000; // 30 seconds
 const BACKFILL_EVERY_N_TICKS = 10;   // every 10 × 30s = 5 minutes
@@ -61,6 +61,9 @@ async function runHealthChecks(): Promise<void> {
 
   // Cleanup stale pending form answers older than 7 days
   await cleanupStaleFormAnswers().catch(() => {});
+
+  // Restore nicknames for vacations that have ended
+  await cleanupExpiredVacations().catch(() => {});
 }
 
 export function getUptime(): number {
