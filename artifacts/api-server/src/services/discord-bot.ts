@@ -752,8 +752,10 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
     emoji: "🎫", header: "Tickety",
     cmds: [
       { name: "=formularz [typ]", desc: "Wysyła formularz do bieżącego kanału ticketu (typ: rekrutacja/sojusz/konkurs/walka). Jeśli typ pominięty — auto-wykrywa z nazwy kanału." },
-      { name: "=wynik-formularz / =formularz-wyniki", desc: "Wysyła formularz do publikowania wyniku rekrutacji (rekruterzy/admini)" },
-      { name: "=wynik-test-formularz", desc: "Wysyła przykładowy testowy wynik rekrutacji do podglądu wyglądu (alias: =wynik-test-ftomularz)" },
+      { name: "=wynik-formularz", desc: "Wysyła formularz wyniku rekrutacji (rekruterzy/admini)" },
+      { name: "=formularz-wyniki", desc: "Alias formularza wyniku rekrutacji (rekruterzy/admini)" },
+      { name: "=wynik-test-formularz", desc: "Wysyła przykładowy testowy wynik rekrutacji do podglądu wyglądu" },
+      { name: "=wynik-test-ftomularz", desc: "Alias testowego formularza wyniku rekrutacji" },
       { name: "=wstrzymaj-ticket [powód]", desc: "Oznacza ticket jako wstrzymany i publikuje powód w kanale" },
     ],
   },
@@ -945,6 +947,10 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       );
 
       const panelEmbed = new EmbedBuilder()
+        .setAuthor({
+          name: "PackSMP • Panel wyników rekrutacji",
+          iconURL: message.guild?.iconURL({ extension: "png", size: 128 }) ?? undefined,
+        })
         .setTitle("📝 Formularz wyniku rekrutacji")
         .setColor(0x5865F2)
         .setDescription(
@@ -953,7 +959,19 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
           "Tryby gry z wynikami wpisuj np. `Axe: 3:0`.\n\n" +
           "Uzupełnij obie strony, a bot wyśle gotowy embed na ten kanał."
         )
-        .setFooter({ text: "PackSMP • Wyniki rekrutacji" })
+        .addFields(
+          {
+            name: "📋 Formularz obejmuje",
+            value: "Uczestnika • egzaminatora • poziom PvP • trzy etapy • tryby gry • wynik końcowy • uwagi",
+            inline: false,
+          },
+          {
+            name: "✨ Przykład wyniku",
+            value: "`Axe: 3:0`  •  `Crystal PvP: 2:1`",
+            inline: false,
+          },
+        )
+        .setFooter({ text: "PackSMP • Wybierz stronę formularza poniżej" })
         .setTimestamp();
 
       await channel.send({ embeds: [panelEmbed], components: pageButtons });
@@ -1181,10 +1199,19 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         return;
       }
       const embed = new EmbedBuilder()
+        .setAuthor({
+          name: "PackSMP • Centrum administracji",
+          iconURL: message.guild?.iconURL({ extension: "png", size: 128 }) ?? undefined,
+        })
         .setTitle("🛡️ PackSMP — Komendy Administracyjne")
-        .setColor(0xFEE75C)
+        .setColor(0x5865F2)
+        .setDescription(
+          "Pełna lista komend administracyjnych i rekrutacyjnych.\n" +
+          "Komendy wyników rekrutacji są dostępne dla administracji oraz rekruterów."
+        )
         .addFields(...buildFields(ADMIN_CMD_REGISTRY))
-        .setFooter({ text: "PackSMP • Tylko dla administratorów serwera" });
+        .setFooter({ text: "PackSMP • Panel administracyjny" })
+        .setTimestamp();
       await message.reply({ embeds: [embed] });
       break;
     }
@@ -2290,19 +2317,22 @@ function buildRecruitmentResultEmbed(
   const notes = answers.notes ?? "*(brak odpowiedzi)*";
 
   const embed = new EmbedBuilder()
-    .setAuthor({ name: isTest ? "PackSMP • Podgląd testowy" : "PackSMP • Wynik rekrutacji" })
+    .setAuthor({
+      name: isTest ? "PackSMP • Podgląd testowy" : "PackSMP • Wynik rekrutacji",
+      iconURL: guildIcon ?? undefined,
+    })
     .setTitle(resultTitle)
     .setColor(resultColor)
     .setDescription(
       `${participant} ${isRejected ? "🚩 nie zdał(a) rekrutacji." : "✅ zdał(a) rekrutację."}`
     )
     .addFields(
-      { name: "👥 Uczestnik:", value: participant.slice(0, 1024), inline: false },
-      { name: "⚙️ Egzaminator:", value: examiner.slice(0, 1024), inline: false },
-      { name: "🏅 Poziom PvP:", value: pvpLevel.slice(0, 1024), inline: false },
+      { name: "👥 Uczestnik:", value: participant.slice(0, 1024), inline: true },
+      { name: "⚙️ Egzaminator:", value: examiner.slice(0, 1024), inline: true },
+      { name: "🏅 Poziom PvP:", value: pvpLevel.slice(0, 1024), inline: true },
       { name: "📋 Etapy rekrutacji:", value: stages, inline: false },
-      { name: "📊 Wyniki walk:", value: rounds.slice(0, 1024), inline: false },
-      { name: "🏅 Łączny wynik:", value: totalResult.slice(0, 1024), inline: false },
+      { name: "⚔️ Tryby i wyniki:", value: rounds.slice(0, 1024), inline: false },
+      { name: "🏆 Łączny wynik:", value: totalResult.slice(0, 1024), inline: true },
       { name: "Uwagi:", value: notes.slice(0, 1024), inline: false },
     )
     .setFooter({
