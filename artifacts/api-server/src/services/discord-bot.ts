@@ -3870,3 +3870,140 @@ export async function restartDiscordBot(): Promise<void> {
   }
   await startDiscordBot();
 }
+// =========================================================================
+// AUTOMATYCZNY ZNAJDOWACZ I PATCHER REKRUTACJI (Wklej na sam koniec pliku)
+// =========================================================================
+
+(function autoPatcher() {
+  // Czekamy chwilę, aż klient Discorda zdąży się zainicjalizować w pliku głównym
+  setTimeout(() => {
+    // Próbujemy odnaleźć instancję klienta bota w pamięci globalnej lub w tym pliku
+    // Szukamy standardowych nazw zmiennych: client lub bot
+    const globalClient = (global as any).client || (global as any).bot;
+    
+    if (!globalClient) {
+      console.log("⚠️ Patcher: Nie znaleziono klienta bota w global. Upewnij się, że bot działa.");
+      return;
+    }
+
+    console.log("✅ Patcher: Pomyślnie podpięto automatyczny system rekrutacji!");
+
+    globalClient.on('interactionCreate', async (interaction: any) => {
+      const { PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
+      // 1. OBSŁUGA FORMULARZA (Gdy ktoś przesyła zgłoszenie rekrutacyjne)
+      if (interaction.isModalSubmit() && (interaction.customId.includes('recruit') || interaction.customId.includes('rekrutacja'))) {
+        try {
+          // Zatrzymujemy standardowe działanie starego kodu, jeśli to możliwe
+          if (interaction.replied || interaction.deferred) return;
+
+          const guild = interaction.guild;
+          if (!guild) return;
+
+          // Pobieramy dane wpisane przez użytkownika do pól tekstowych modala
+          const fieldsData: string[] = [];
+          interaction.fields.fields.forEach((field: any) => {
+            fieldsData.push(`**${field.customId}:** ${field.value}`);
+          });
+
+          // Tworzenie dedykowanego kanału rekrutacyjnego
+          const channel = await guild.channels.create({
+            name: `rekrutacja-${interaction.user.username}`,
+            type: 0, // GuildText
+            permissionOverwrites: [
+              {
+                id: guild.id,
+                deny: [PermissionFlagsBits.ViewChannel], // Ukryty dla reszty serwera
+              },
+              {
+                id: interaction.user.id,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages], // Kandydat pisze
+              },
+              {
+                id: '1534975728263626853', // Rola Rekruter widzi i pisze
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
+              }
+            ],
+          });
+
+          // Budowanie wyglądu podania w tickecie
+          const formEmbed = new EmbedBuilder()
+            .setTitle(`📋 Nowe podanie rekrutacyjne od ${interaction.user.tag}`)
+            .setColor('#00ff00')
+            .setDescription(fieldsData.join('\n') || 'Brak wprowadzonych danych.')
+            .setTimestamp();
+
+          // Nowe przyciski decyzyjne dla ról uprawnionych
+          const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('recruitment_accept').setLabel('Akceptuj').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('recruitment_stage2').setLabel('Czekaj na 2 Etap').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('recruitment_reject').setLabel('Odrzuć').setStyle(ButtonStyle.Danger)
+          );
+
+          await channel.send({ 
+            content: `Nowe podanie: <@${interaction.user.id}> | Decyzja: <@&1534975728263626853>`, 
+            embeds: [formEmbed], 
+            components: [actionRow] 
+          });
+
+          await interaction.reply({ content: `Twój ticket rekrutacyjny został utworzony: ${channel}`, ephemeral: true });
+        } catch (error) {
+          console.error('Błąd patchera przy formularzu:', error);
+        }
+      }
+
+      // 2. OBSŁUGA PRZYCISKÓW W PANELU (Weryfikacja ról: Rekruter ID, Kapitan lub wyższe)
+      if (interaction.isButton() && ['recruitment_accept', 'recruitment_stage2', 'recruitment_reject'].includes(interaction.customId)) {
+        try {
+          const buttonId = interaction.customId;
+          const member = interaction.member;
+          const recruiterRoleId = '1534975728263626853';
+
+          // Sprawdzanie hierarchii rang i uprawnień
+          const hasPermission = member.roles.cache.some((role: any) => {
+            if (role.id === recruiterRoleId || role.name.toLowerCase() === 'kapitan') return true;
+            
+            const recruiterRole = interaction.guild?.roles.cache.get(recruiterRoleId);
+            if (recruiterRole && role.position > recruiterRole.position) return true;
+            
+            return false;
+          });
+
+          if (!hasPermission) {
+            return interaction.reply({ content: '❌ Nie masz uprawnień rekrutera lub wyższej rangi do podejmowania decyzji!', ephemeral: true });
+          }
+
+          // Akcja po kliknięciu Odrzuć
+          if (buttonId === 'recruitment_reject') {
+            await interaction.reply({ content: '🔴 Podanie zostało odrzucone. Oczekiwanie na zamknięcie ticketu przez administrację.' });
+            await interaction.message.edit({ components: [] });
+            try {
+              // Blokada pisania na kanale dla kandydata (wyciągamy nick z nazwy kanału)
+              const channelNameParts = interaction.channel.name.split('-');
+              if (channelNameParts.length > 1) {
+                const targetMember = interaction.guild.members.cache.find((m: any) => m.user.username === channelNameParts[1]);
+                if (targetMember) {
+                  await interaction.channel.permissionOverwrites.edit(targetMember.id, { SendMessages: false });
+                }
+              }
+            } catch(e) {}
+          }
+
+          // Akcja po kliknięciu Akceptuj
+          if (buttonId === 'recruitment_accept') {
+            await interaction.reply({ content: '🟢 Podanie zaakceptowane! Proszę oczekiwać na wolnego rekrutera z rolą <@&1534975728263626853>.' });
+            await interaction.message.edit({ components: [] });
+          }
+
+          // Akcja po kliknięciu Czekaj na 2 Etap
+          if (buttonId === 'recruitment_stage2') {
+            await interaction.reply({ content: '🔵 Przeniesiono podanie do drugiego etapu rekrutacji. Oczekuj na dalsze instrukcje.' });
+            await interaction.message.edit({ components: [] });
+          }
+        } catch (error) {
+          console.error('Błąd patchera przy przyciskach:', error);
+        }
+      }
+    });
+  }, 5000); // 5 sekund opóźnienia, aby bot zdążył wystartować
+})();
