@@ -174,38 +174,6 @@ export async function cleanupExpiredVacations(): Promise<void> {
 }
 
 const TICKET_FORMS: Record<TicketType, TicketForm> = {
-  rekrutacja: {
-    title: "📋 Formularz rekrutacyjny",
-    intro: "Wypełnij formularz rekrutacyjny PackSMP. Formularz składa się z 3 stron — po wypełnieniu każdej kliknij Wyślij.",
-    color: 0x5865F2,
-    footer: "PackSMP • Rekrutacja",
-    pages: [
-      // Strona 1 / 3
-      [
-        { id: "nick",      label: "Jaki masz nick?",                               placeholder: "Twój nick Minecraft",          style: TextInputStyle.Short },
-        { id: "wiek",      label: "Ile masz lat?",                                 placeholder: "Twój wiek",                    style: TextInputStyle.Short },
-        { id: "zwrot",     label: "Jak mamy się do Ciebie zwracać?",               placeholder: "Imię, pseudonim...",           style: TextInputStyle.Short },
-        { id: "pvp",       label: "Jak oceniasz swoje PvP? (1–10)",                placeholder: "np. 7",                        style: TextInputStyle.Short },
-        { id: "build",     label: "Jak oceniasz swoje budowanie? (1–10)",          placeholder: "np. 6",                        style: TextInputStyle.Short },
-      ],
-      // Strona 2 / 3
-      [
-        { id: "aktywnosc", label: "Jak oceniasz swoją aktywność? (1–10)",          placeholder: "np. 8",                        style: TextInputStyle.Short },
-        { id: "czas",      label: "Ile czasu dziennie możesz poświęcić na grę?",   placeholder: "np. 2–3 godziny",              style: TextInputStyle.Short },
-        { id: "panstwa",   label: "W jakich państwach grałeś wcześniej?",          placeholder: "Wymień nazwy państw",          style: TextInputStyle.Paragraph },
-        { id: "rangi",     label: "Jakie miałeś tam rangi/funkcje?",               placeholder: "np. Lider, Budowniczy...",     style: TextInputStyle.Paragraph },
-        { id: "osiag",     label: "Jakie są Twoje największe osiągnięcia?",        placeholder: "Opisz swoje sukcesy",          style: TextInputStyle.Paragraph },
-      ],
-      // Strona 3 / 3
-      [
-        { id: "najlepszy", label: "W czym jesteś najlepszy?",                      placeholder: "PvP / Build / Ekonomia / Redstone / Alchemia / Inne", style: TextInputStyle.Short },
-        { id: "mikrofon",  label: "Czy posiadasz sprawny mikrofon?",               placeholder: "Tak / Nie",                    style: TextInputStyle.Short },
-        { id: "discord",   label: "Czy jesteś aktywny na Discordzie?",             placeholder: "Tak / Nie / Czasami",          style: TextInputStyle.Short },
-        { id: "dlaczego",  label: "Dlaczego chcesz dołączyć właśnie do naszego państwa?", placeholder: "Opisz swoją motywację",        style: TextInputStyle.Paragraph },
-        { id: "wybor",     label: "Dlaczego powinniśmy wybrać właśnie Ciebie?",   placeholder: "Co Cię wyróżnia?",             style: TextInputStyle.Paragraph },
-      ],
-    ],
-  },
   sojusz: {
     title: "🤝 Formularz sojuszu",
     intro: "Przedstaw propozycję sojuszu.",
