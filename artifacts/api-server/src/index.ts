@@ -72,6 +72,8 @@ app.listen(port, async (err) => {
   const dcClient = getDiscordClient();
   if (dcClient) {
     setDiscordRef(dcClient, CHAT_CHANNEL_ID);
+    // FIX: Przypisanie klienta bota do obiektu globalnego dla Patchera
+    (global as any).client = dcClient;
   }
 
   // Connect Minecraft bot (disabled in dev to avoid duplicate_login with production)
