@@ -1,3 +1,7 @@
+// WYMUSZENIE IPV4 DLA NOWYCH WERSJI NODE.JS (FIX DLA SUPABASE NA RENDERZE)
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { startDiscordBot } from "./services/discord-bot.js";
@@ -72,8 +76,6 @@ app.listen(port, async (err) => {
   const dcClient = getDiscordClient();
   if (dcClient) {
     setDiscordRef(dcClient, CHAT_CHANNEL_ID);
-    // FIX: Przypisanie klienta bota do obiektu globalnego dla Patchera
-    (global as any).client = dcClient;
   }
 
   // Connect Minecraft bot (disabled in dev to avoid duplicate_login with production)
