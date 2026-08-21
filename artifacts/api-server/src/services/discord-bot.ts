@@ -187,7 +187,7 @@ if (typeof client !== "undefined" && client) {
     if (currentPage === form.pages.length - 1) {
       const cacheKey = `form:${interaction.user.id}:rekrutacja`;
       setTimeout(async () => {
-        try 
+        try {
           const rows = await db.select().from(pendingFormAnswersTable).where(eq(pendingFormAnswersTable.key, cacheKey));
           if (rows.length > 0) {
             const currentAnswers = JSON.parse(rows[0]!.answers);
