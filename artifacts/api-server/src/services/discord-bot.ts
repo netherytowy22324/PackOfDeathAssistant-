@@ -176,27 +176,34 @@ export async function cleanupExpiredVacations(): Promise<void> {
 
 
 // Globalny interceptor podmieniający wyjście rekrutacji
-if (typeof client !== "undefined" && client) {
-  client.on("interactionCreate", async (interaction) => {
-    if (!interaction.isModalSubmit()) return;
-    const [prefix, ticketType, pageStr] = interaction.customId.split(":");
-    if (prefix !== "ticket_modal" || ticketType !== "rekrutacja") return;
+// Przenosimy rejestrację eventu na koniec kolejki wykonania, aby uniknąć błędu przed inicjalizacją
+setTimeout(() => {
+  if (typeof client !== "undefined" && client) {
+    client.on("interactionCreate", async (interaction) => {
+      if (!interaction.isModalSubmit()) return;
+      const [prefix, ticketType, pageStr] = interaction.customId.split(":");
+      if (prefix !== "ticket_modal" || ticketType !== "rekrutacja") return;
 
-    const currentPage = parseInt(pageStr ?? "0", 10);
-    const form = TICKET_FORMS["rekrutacja"];
-    if (currentPage === form.pages.length - 1) {
-      const cacheKey = `form:${interaction.user.id}:rekrutacja`;
-      setTimeout(async () => {
-        try {
-          const rows = await db.select().from(pendingFormAnswersTable).where(eq(pendingFormAnswersTable.key, cacheKey));
-          if (rows.length > 0) {
-            const currentAnswers = JSON.parse(rows[0]!.answers);
-            await sendFormattedRecruitment(interaction, currentAnswers, RECRUIT_WAITING_CHANNEL_ID);
+      const currentPage = parseInt(pageStr ?? "0", 10);
+      const form = DODATKOWE_FORMULARZE["rekrutacja"] || (typeof TICKET_FORMS !== "undefined" ? TICKET_FORMS["rekrutacja"] : null);
+      if (form && currentPage === form.pages.length - 1) {
+        const cacheKey = `form:${interaction.user.id}:rekrutacja`;
+        setTimeout(async () => {
+          try {
+            const rows = await db.select().from(pendingFormAnswersTable).where(eq(pendingFormAnswersTable.key, cacheKey));
+            if (rows.length > 0) {
+              const currentAnswers = JSON.parse(rows[0].answers);
+              await sendFormattedRecruitment(interaction, currentAnswers, RECRUIT_WAITING_CHANNEL_ID);
+            }
+          } catch (e) {
+            logger.error(e, "Błąd w przechwytywaniu wysyłki formularza");
           }
-        } catch (e) {
-          logger.error(e, "Błąd w przechwytywaniu wysyłki formularza");
-        }
-      }, 500);
+        }, 500);
+      }
+    });
+  }
+}, 1000);
+
     }
   });
 }
