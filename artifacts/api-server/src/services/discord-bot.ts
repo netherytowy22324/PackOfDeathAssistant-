@@ -292,6 +292,7 @@ Jeżeli podanie zostanie zaakceptowane, ticket zostanie przejęty przez rekruter
 
   await channel.send({ content: tekstPodania });
 }
+const TICKET_FORMS: any = {
   sojusz: {
     title: "🤝 Formularz sojuszu",
     intro: "Przedstaw propozycję sojuszu.",
