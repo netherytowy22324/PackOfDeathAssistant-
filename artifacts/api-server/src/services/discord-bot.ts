@@ -174,6 +174,35 @@ export async function cleanupExpiredVacations(): Promise<void> {
 }
 
 const TICKET_FORMS: Record<TicketType, TicketForm> = {
+    rekrutacja: {
+    title: "📝 Formularz rekrutacyjny",
+    intro: "Wypełnij formularz rekrutacyjny PackSMP. Formularz składa się z 3 stron — po wypełnieniu każdej kliknij Wyślij.",
+    color: 0x3498DB,
+    footer: "PackSMP • Rekrutacja",
+    pages: [
+      [
+        { id: "mc_nick", label: "1. Nick w grze", placeholder: "Twój dokładny nick z Minecraft", style: TextInputStyle.Short, required: true },
+        { id: "age", label: "2. Wiek", placeholder: "Ile masz lat?", style: TextInputStyle.Short, required: true },
+        { id: "pronouns", label: "3. Jak się zwracać (imię/pseudonim)", placeholder: "Np. Marek, On/Jego", style: TextInputStyle.Short, required: true },
+        { id: "time_per_day", label: "7. Czas dzienny na grę", placeholder: "Ile godzin możesz grać dziennie?", style: TextInputStyle.Short, required: true },
+        { id: "mic", label: "12. Sprawny mikrofon", placeholder: "TAK / NIE", style: TextInputStyle.Short, required: true }
+      ],
+      [
+        { id: "pvp", label: "4. PvP (w skali 1-10)", placeholder: "Np. 7/10", style: TextInputStyle.Short, required: true },
+        { id: "build", label: "5. Budowanie (w skali 1-10)", placeholder: "Np. 6/10", style: TextInputStyle.Short, required: true },
+        { id: "activity_game", label: "6. Aktywność w grze (1-10)", placeholder: "Np. 8/10", style: TextInputStyle.Short, required: true },
+        { id: "best_at", label: "11. W czym jesteś najlepszy", placeholder: "PvP / Budowanie / Ekonomia...", style: TextInputStyle.Short, required: true },
+        { id: "activity_dc", label: "13. Aktywność na Discordzie", placeholder: "Napisz jak oceniasz swoją aktywność", style: TextInputStyle.Short, required: true }
+      ],
+      [
+        { id: "prev_nations", label: "8. Poprzednie państwa", placeholder: "W jakich państwach grałeś?", style: TextInputStyle.Paragraph, required: true },
+        { id: "prev_roles", label: "9. Posiadane tam rangi/funkcje", placeholder: "Jakie funkcje tam pełniłeś?", style: TextInputStyle.Paragraph, required: true },
+        { id: "achievements", label: "10. Największe osiągnięcia", placeholder: "Opisz swoje sukcesy", style: TextInputStyle.Paragraph, required: true },
+        { id: "why_us", label: "14. Dlaczego nasze państwo?", placeholder: "Dlaczego chcesz dołączyć do nas?", style: TextInputStyle.Paragraph, required: true },
+        { id: "why_you", label: "15. Dlaczego Ty?", placeholder: "Dlaczego powinniśmy wybrać właśnie Ciebie?", style: TextInputStyle.Paragraph, required: true }
+      ]
+    ]
+  },
   sojusz: {
     title: "🤝 Formularz sojuszu",
     intro: "Przedstaw propozycję sojuszu.",
