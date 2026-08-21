@@ -292,7 +292,7 @@ Jeżeli podanie zostanie zaakceptowane, ticket zostanie przejęty przez rekruter
 
   await channel.send({ content: tekstPodania });
 }
-  const sojuszForm: {
+  const DODATKOWE_FORMULARZE: any = {
     title: "🤝 Formularz sojuszu",
     intro: "Przedstaw propozycję sojuszu.",
     color: 0x57F287,
