@@ -173,10 +173,101 @@ export async function cleanupExpiredVacations(): Promise<void> {
   }
 }
 
+
+
+// Globalny interceptor podmieniający wyjście rekrutacji
+if (typeof client !== "undefined" && client) {
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isModalSubmit()) return;
+    const [prefix, ticketType, pageStr] = interaction.customId.split(":");
+    if (prefix !== "ticket_modal" || ticketType !== "rekrutacja") return;
+
+    const currentPage = parseInt(pageStr ?? "0", 10);
+    const form = TICKET_FORMS["rekrutacja"];
+    if (currentPage === form.pages.length - 1) {
+      const cacheKey = `form:${interaction.user.id}:rekrutacja`;
+      setTimeout(async () => {
+        try {
+          const rows = await db.select().from(pendingFormAnswersTable).where(eq(pendingFormAnswersTable.key, cacheKey));
+          if (rows.length > 0) {
+            const currentAnswers = JSON.parse(rows[0]!.answers);
+            await sendFormattedRecruitment(interaction, currentAnswers, RECRUIT_WAITING_CHANNEL_ID);
+          }
+        } catch (e) {
+          logger.error(e, "Błąd w przechwytywaniu wysyłki formularza");
+        }
+      }, 500);
+    }
+  });
+}
+  },
 const TICKET_FORMS: Record<TicketType, TicketForm> = {
-  // ==============================================================================
-// PODMIANA: GENEROWANIE I WYSYŁANIE PODANIA REKRUTACYJNEGO W WYBRANYM FORMACIE
-// ==============================================================================
+  sojusz: {
+    title: "🤝 Formularz sojuszu",
+    intro: "Przedstaw propozycję sojuszu.",
+    color: 0x57F287,
+    footer: "PackSMP • Sojusze",
+    pages: [[
+      { id: "group_name",   label: "Nazwa grupy/serwera",  placeholder: "Nazwa Waszej grupy",     style: TextInputStyle.Short },
+      { id: "members",      label: "Liczba członków",       placeholder: "Ile osób liczy grupa?",  style: TextInputStyle.Short },
+      { id: "offer",        label: "Co oferujecie?",        placeholder: "Opisz propozycję",       style: TextInputStyle.Paragraph },
+      { id: "expectations", label: "Czego oczekujecie?",    placeholder: "Opisz oczekiwania",      style: TextInputStyle.Paragraph },
+    ]],
+  },
+  konkurs: {
+    title: "🏆 Formularz zgłoszenia wygranej",
+    intro: "Podaj informacje potrzebne do odebrania nagrody.",
+    color: 0xFEE75C,
+    footer: "PackSMP • Konkursy",
+    pages: [[
+      { id: "mc_nick",  label: "Nick Minecraft",    placeholder: "Twój nick Minecraft",          style: TextInputStyle.Short },
+      { id: "contest",  label: "Nazwa konkursu",     placeholder: "W którym konkursie wygrałeś?", style: TextInputStyle.Short },
+      { id: "proof",    label: "Dowód wygranej",     placeholder: "Link lub opis dowodu",         style: TextInputStyle.Paragraph },
+      { id: "prize",    label: "Wygrana nagroda",    placeholder: "Co wygrałeś?",                 style: TextInputStyle.Short },
+    ]],
+  },
+  rekrutacja: {
+    title: "📝 Formularz rekrutacyjny",
+    intro: "Wypełnij formularz rekrutacyjny PackSMP. Formularz składa się z 3 stron — po wypełnieniu każdej kliknij Wyślij.",
+    color: 0x3498DB,
+    footer: "PackSMP • Rekrutacja",
+    pages: [
+      [
+        { id: "mc_nick", label: "1. Nick w grze", placeholder: "Twój dokładny nick z Minecraft", style: TextInputStyle.Short, required: true },
+        { id: "age", label: "2. Wiek", placeholder: "Ile masz lat?", style: TextInputStyle.Short, required: true },
+        { id: "pronouns", label: "3. Jak się zwracać (imię/pseudonim)", placeholder: "Np. Marek, On/Jego", style: TextInputStyle.Short, required: true },
+        { id: "time_per_day", label: "7. Czas dzienny na grę", placeholder: "Ile godzin możesz grać dziennie?", style: TextInputStyle.Short, required: true },
+        { id: "mic", label: "12. Sprawny mikrofon", placeholder: "TAK / NIE", style: TextInputStyle.Short, required: true }
+      ],
+      [
+        { id: "pvp", label: "4. PvP (w skali 1-10)", placeholder: "Np. 7/10", style: TextInputStyle.Short, required: true },
+        { id: "build", label: "5. Budowanie (w skali 1-10)", placeholder: "Np. 6/10", style: TextInputStyle.Short, required: true },
+        { id: "activity_game", label: "6. Aktywność w grze (1-10)", placeholder: "Np. 8/10", style: TextInputStyle.Short, required: true },
+        { id: "best_at", label: "11. W czym jesteś najlepszy", placeholder: "PvP / Budowanie / Ekonomia...", style: TextInputStyle.Short, required: true },
+        { id: "activity_dc", label: "13. Aktywność na Discordzie", placeholder: "Napisz jak oceniasz swoją aktywność", style: TextInputStyle.Short, required: true }
+      ],
+      [
+        { id: "prev_nations", label: "8. Poprzednie państwa", placeholder: "W jakich państwach grałeś?", style: TextInputStyle.Paragraph, required: true },
+        { id: "prev_roles", label: "9. Posiadane tam rangi/funkcje", placeholder: "Jakie funkcje tam pełniłeś?", style: TextInputStyle.Paragraph, required: true },
+        { id: "achievements", label: "10. Największe osiągnięcia", placeholder: "Opisz swoje sukcesy", style: TextInputStyle.Paragraph, required: true },
+        { id: "why_us", label: "14. Dlaczego nasze państwo?", placeholder: "Dlaczego chcesz dołączyć do nas?", style: TextInputStyle.Paragraph, required: true },
+        { id: "why_you", label: "15. Dlaczego Ty?", placeholder: "Dlaczego powinniśmy wybrać właśnie Ciebie?", style: TextInputStyle.Paragraph, required: true }
+      ]
+    ]
+  },
+  walka: {
+    title: "⚔️ Zgłoszenie walki / turnieju",
+    intro: "Wypełnij dane dotyczące wyzwania.",
+    color: 0xE74C3C,
+    footer: "PackSMP • Walki",
+    pages: [[
+      { id: "opponent", label: "Przeciwnik", placeholder: "Kogo wyzywasz na pojedynek?", style: TextInputStyle.Short, required: true },
+      { id: "date", label: "Proponowana data", placeholder: "Kiedy chcesz stoczyć walkę?", style: TextInputStyle.Short, required: true }
+    ]]
+  }
+}; // <--- TUTAJ ZAMYKA SIĘ OBIEKT TICKET_FORMS
+
+// DOPIERO TUTAJ (POZA OBIEKTEM) JEST MIEJSCE NA FUNKCJĘ
 async function sendFormattedRecruitment(interaction: any, answers: Record<string, string>, targetChannelId: string) {
   const channel = interaction.guild?.channels.cache.get(targetChannelId);
   if (!channel) return;
@@ -231,33 +322,6 @@ Jeżeli podanie zostanie zaakceptowane, ticket zostanie przejęty przez rekruter
 
   await channel.send({ content: tekstPodania });
 }
-
-// Globalny interceptor podmieniający wyjście rekrutacji
-if (typeof client !== "undefined" && client) {
-  client.on("interactionCreate", async (interaction) => {
-    if (!interaction.isModalSubmit()) return;
-    const [prefix, ticketType, pageStr] = interaction.customId.split(":");
-    if (prefix !== "ticket_modal" || ticketType !== "rekrutacja") return;
-
-    const currentPage = parseInt(pageStr ?? "0", 10);
-    const form = TICKET_FORMS["rekrutacja"];
-    if (currentPage === form.pages.length - 1) {
-      const cacheKey = `form:${interaction.user.id}:rekrutacja`;
-      setTimeout(async () => {
-        try {
-          const rows = await db.select().from(pendingFormAnswersTable).where(eq(pendingFormAnswersTable.key, cacheKey));
-          if (rows.length > 0) {
-            const currentAnswers = JSON.parse(rows[0]!.answers);
-            await sendFormattedRecruitment(interaction, currentAnswers, RECRUIT_WAITING_CHANNEL_ID);
-          }
-        } catch (e) {
-          logger.error(e, "Błąd w przechwytywaniu wysyłki formularza");
-        }
-      }, 500);
-    }
-  });
-}
-  },
   sojusz: {
     title: "🤝 Formularz sojuszu",
     intro: "Przedstaw propozycję sojuszu.",
