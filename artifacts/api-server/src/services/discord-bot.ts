@@ -293,16 +293,17 @@ Jeżeli podanie zostanie zaakceptowane, ticket zostanie przejęty przez rekruter
   await channel.send({ content: tekstPodania });
 }
   const DODATKOWE_FORMULARZE: any = {
+  sojusz: {
     title: "🤝 Formularz sojuszu",
     intro: "Przedstaw propozycję sojuszu.",
     color: 0x57F287,
     footer: "PackSMP • Sojusze",
     pages: [[
-      { id: "group_name",   label: "Nazwa grupy/serwera",  placeholder: "Nazwa Waszej grupy",     style: TextInputStyle.Short },
-      { id: "members",      label: "Liczba członków",       placeholder: "Ile osób liczy grupa?",  style: TextInputStyle.Short },
-      { id: "offer",        label: "Co oferujecie?",        placeholder: "Opisz propozycję",       style: TextInputStyle.Paragraph },
-      { id: "expectations", label: "Czego oczekujecie?",    placeholder: "Opisz oczekiwania",      style: TextInputStyle.Paragraph },
-    ]],
+      { id: "group_name", label: "Nazwa grupy/serwera" },
+      { id: "members", label: "Liczba członków" },
+      { id: "offer", label: "Co oferujecie?" },
+      { id: "expectations", label: "Czego oczekujecie?" }
+    ]]
   },
   konkurs: {
     title: "🏆 Formularz zgłoszenia wygranej",
@@ -310,42 +311,24 @@ Jeżeli podanie zostanie zaakceptowane, ticket zostanie przejęty przez rekruter
     color: 0xFEE75C,
     footer: "PackSMP • Konkursy",
     pages: [[
-      { id: "mc_nick",  label: "Nick Minecraft",    placeholder: "Twój nick Minecraft",          style: TextInputStyle.Short },
-      { id: "contest",  label: "Nazwa konkursu",     placeholder: "W którym konkursie wygrałeś?", style: TextInputStyle.Short },
-      { id: "proof",    label: "Dowód wygranej",     placeholder: "Link lub opis dowodu",         style: TextInputStyle.Paragraph },
-      { id: "prize",    label: "Wygrana nagroda",    placeholder: "Jaką nagrodę wygrałeś?",       style: TextInputStyle.Short },
-    ]],
+      { id: "mc_nick", label: "Nick Minecraft" },
+      { id: "contest", label: "Nazwa konkursu" },
+      { id: "proof", label: "Dowód wygranej" },
+      { id: "prize", label: "Wygrana nagroda" }
+    ]]
   },
   walka: {
-    title: "⚔️ Formularz walki klatki",
-    intro: "Przedstaw propozycję walki klatki. Formularz składa się z 3 stron — po wypełnieniu każdej kliknij Wyślij.",
-    color: 0xED4245,
+    title: "⚔️ Zgłoszenie walki / turnieju",
+    intro: "Wypełnij dane dotyczące wyzwania.",
+    color: 0xE74C3C,
     footer: "PackSMP • Walki",
-    pages: [
-      // Strona 1 / 3
-      [
-        { id: "panstwo_my",   label: "Nazwa naszego państwa",      placeholder: "Twoje państwo",         style: TextInputStyle.Short },
-        { id: "panstwo_oni",  label: "Nazwa przeciwnego państwa",   placeholder: "Państwo przeciwnika",   style: TextInputStyle.Short },
-        { id: "lider_my",     label: "Lider naszego państwa",       placeholder: "Nick lidera",           style: TextInputStyle.Short },
-        { id: "lider_oni",    label: "Lider przeciwnego państwa",   placeholder: "Nick lidera",           style: TextInputStyle.Short },
-      ],
-      // Strona 2 / 3
-      [
-        { id: "zawodnicy",    label: "Liczba zawodników",           placeholder: "np. 5v5",               style: TextInputStyle.Short },
-        { id: "tryb",         label: "Tryb walki",                  placeholder: "np. UHC, Normal...",    style: TextInputStyle.Short },
-        { id: "data",         label: "Proponowana data",            placeholder: "np. 20.08.2025",        style: TextInputStyle.Short },
-        { id: "godzina",      label: "Proponowana godzina",         placeholder: "np. 18:00",             style: TextInputStyle.Short },
-      ],
-      // Strona 3 / 3
-      [
-        { id: "zasady",       label: "Zasady walki",                placeholder: "Opisz zasady",          style: TextInputStyle.Paragraph },
-        { id: "nagroda",      label: "Nagroda",                     placeholder: "Co stawia każda strona?", style: TextInputStyle.Short },
-        { id: "osoba",        label: "Osoba odpowiedzialna",        placeholder: "Nick koordynatora",     style: TextInputStyle.Short },
-        { id: "akceptacja",   label: "Czy obie strony zaakceptowały zasady?", placeholder: "Tak / Nie / Jeszcze nie", style: TextInputStyle.Short },
-      ],
-    ],
-  },
+    pages: [[
+      { id: "opponent", label: "Przeciwnik" },
+      { id: "date", label: "Proponowana data" }
+    ]]
+  }
 };
+
 
 const RESULT_FORM_PAGES: TicketFormField[][] = [
   [
