@@ -174,34 +174,89 @@ export async function cleanupExpiredVacations(): Promise<void> {
 }
 
 const TICKET_FORMS: Record<TicketType, TicketForm> = {
-    rekrutacja: {
-    title: "📝 Formularz rekrutacyjny",
-    intro: "Wypełnij formularz rekrutacyjny PackSMP. Formularz składa się z 3 stron — po wypełnieniu każdej kliknij Wyślij.",
-    color: 0x3498DB,
-    footer: "PackSMP • Rekrutacja",
-    pages: [
-      [
-        { id: "mc_nick", label: "1. Nick w grze", placeholder: "Twój dokładny nick z Minecraft", style: TextInputStyle.Short, required: true },
-        { id: "age", label: "2. Wiek", placeholder: "Ile masz lat?", style: TextInputStyle.Short, required: true },
-        { id: "pronouns", label: "3. Jak się zwracać (imię/pseudonim)", placeholder: "Np. Marek, On/Jego", style: TextInputStyle.Short, required: true },
-        { id: "time_per_day", label: "7. Czas dzienny na grę", placeholder: "Ile godzin możesz grać dziennie?", style: TextInputStyle.Short, required: true },
-        { id: "mic", label: "12. Sprawny mikrofon", placeholder: "TAK / NIE", style: TextInputStyle.Short, required: true }
-      ],
-      [
-        { id: "pvp", label: "4. PvP (w skali 1-10)", placeholder: "Np. 7/10", style: TextInputStyle.Short, required: true },
-        { id: "build", label: "5. Budowanie (w skali 1-10)", placeholder: "Np. 6/10", style: TextInputStyle.Short, required: true },
-        { id: "activity_game", label: "6. Aktywność w grze (1-10)", placeholder: "Np. 8/10", style: TextInputStyle.Short, required: true },
-        { id: "best_at", label: "11. W czym jesteś najlepszy", placeholder: "PvP / Budowanie / Ekonomia...", style: TextInputStyle.Short, required: true },
-        { id: "activity_dc", label: "13. Aktywność na Discordzie", placeholder: "Napisz jak oceniasz swoją aktywność", style: TextInputStyle.Short, required: true }
-      ],
-      [
-        { id: "prev_nations", label: "8. Poprzednie państwa", placeholder: "W jakich państwach grałeś?", style: TextInputStyle.Paragraph, required: true },
-        { id: "prev_roles", label: "9. Posiadane tam rangi/funkcje", placeholder: "Jakie funkcje tam pełniłeś?", style: TextInputStyle.Paragraph, required: true },
-        { id: "achievements", label: "10. Największe osiągnięcia", placeholder: "Opisz swoje sukcesy", style: TextInputStyle.Paragraph, required: true },
-        { id: "why_us", label: "14. Dlaczego nasze państwo?", placeholder: "Dlaczego chcesz dołączyć do nas?", style: TextInputStyle.Paragraph, required: true },
-        { id: "why_you", label: "15. Dlaczego Ty?", placeholder: "Dlaczego powinniśmy wybrać właśnie Ciebie?", style: TextInputStyle.Paragraph, required: true }
-      ]
-    ]
+  // ==============================================================================
+// PODMIANA: GENEROWANIE I WYSYŁANIE PODANIA REKRUTACYJNEGO W WYBRANYM FORMACIE
+// ==============================================================================
+async function sendFormattedRecruitment(interaction: any, answers: Record<string, string>, targetChannelId: string) {
+  const channel = interaction.guild?.channels.cache.get(targetChannelId);
+  if (!channel) return;
+
+  const tekstPodania = `======================================
+         **PODANIE REKRUTACYJNE**
+======================================
+Użytkownik: <@${interaction.user.id}>
+
+📥  **INFORMACJE O GRACZU**
+> 🔹 **1. Nick w grze:** \` ${answers["mc_nick"] ?? "Brak"} \`
+> 🔹 **2. Wiek:** \` ${answers["age"] ?? "Brak"} lat \`
+> 🔹 **3. Jak się zwracać:** \` ${answers["pronouns"] ?? "Brak"} \`
+
+⚔️  **STATYSTYKI I AKTYWNOŚĆ**
+> ⚔️ **4. PvP:** 📊 \` ${answers["pvp"] ?? "Brak"} \`
+> 🏗️ **5. Budowanie:** 📊 \` ${answers["build"] ?? "Brak"} \`
+> 🔥 **6. Aktywność:** 📊 \` ${answers["activity_game"] ?? "Brak"} \`
+> ⏳ **7. Czas dzienny na grę:** 🕒 \` ${answers["time_per_day"] ?? "Brak"} \`
+
+🌍  **HISTORIA I OSIĄGNIĘCIA**
+💬 *8. Poprzednie państwa, w których grałeś:*
+\`\`\`text
+${answers["prev_nations"] ?? "Brak"}
+\`\`\`
+🏅 *9. Posiadane tam rangi / funkcje:*
+\`\`\`text
+${answers["prev_roles"] ?? "Brak"}
+\`\`\`
+🏆 *10. Największe osiągnięcia:*
+\`\`\`text
+${answers["achievements"] ?? "Brak"}
+\`\`\`
+
+🧪  **PROFIL GRACZA I PYTANIA KOŃCOWE**
+> 💡 **11. W czym najlepszy (PvP/Build/Eko...):** ⭐ \` ${answers["best_at"] ?? "Brak"} \`
+> 🎙️ **12. Sprawny mikrofon:** \` ${answers["mic"] ?? "Brak"} \`
+> 📱 **13. Aktywność na Discordzie:** 💬 \` ${answers["activity_dc"] ?? "Brak"} \`
+
+👑 *14. Dlaczego chcesz dołączyć właśnie do naszego państwa?*
+\`\`\`text
+${answers["why_us"] ?? "Brak"}
+\`\`\`
+🎯 *15. Dlaczego powinniśmy wybrać właśnie Ciebie?*
+\`\`\`text
+${answers["why_you"] ?? "Brak"}
+\`\`\`
+
+======================================
+Jeżeli podanie zostanie zaakceptowane, ticket zostanie przejęty przez rekrutera. W przypadku odrzucenia – ticket zostanie zamknięty.
+======================================`;
+
+  await channel.send({ content: tekstPodania });
+}
+
+// Globalny interceptor podmieniający wyjście rekrutacji
+if (typeof client !== "undefined" && client) {
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isModalSubmit()) return;
+    const [prefix, ticketType, pageStr] = interaction.customId.split(":");
+    if (prefix !== "ticket_modal" || ticketType !== "rekrutacja") return;
+
+    const currentPage = parseInt(pageStr ?? "0", 10);
+    const form = TICKET_FORMS["rekrutacja"];
+    if (currentPage === form.pages.length - 1) {
+      const cacheKey = `form:${interaction.user.id}:rekrutacja`;
+      setTimeout(async () => {
+        try {
+          const rows = await db.select().from(pendingFormAnswersTable).where(eq(pendingFormAnswersTable.key, cacheKey));
+          if (rows.length > 0) {
+            const currentAnswers = JSON.parse(rows[0]!.answers);
+            await sendFormattedRecruitment(interaction, currentAnswers, RECRUIT_WAITING_CHANNEL_ID);
+          }
+        } catch (e) {
+          logger.error(e, "Błąd w przechwytywaniu wysyłki formularza");
+        }
+      }, 500);
+    }
+  });
+}
   },
   sojusz: {
     title: "🤝 Formularz sojuszu",
