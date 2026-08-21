@@ -199,8 +199,7 @@ if (typeof client !== "undefined" && client) {
       }, 500);
     }
   });
-}
-  },
+},
  const TICKET_FORMS: Record<TicketType, TicketForm> = {
   sojusz: {
     title: "🤝 Formularz sojuszu",
