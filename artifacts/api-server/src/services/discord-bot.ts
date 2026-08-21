@@ -204,10 +204,7 @@ setTimeout(() => {
   }
 }, 1000);
 
-    }
-  });
-}
- const TICKET_FORMS: any = {
+ const DODATKOWE_FORMULARZE: any = {
   sojusz: {
     title: "🤝 Formularz sojuszu",
     intro: "Przedstaw propozycję sojuszu.",
