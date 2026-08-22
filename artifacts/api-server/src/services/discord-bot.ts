@@ -2,7 +2,9 @@ import { Client, GatewayIntentBits, MessageFlags, TextChannel } from "discord.js
 import { db, pendingFormAnswersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
-import { logger } from "../lib/logger.js";
+
+// Reszty kodu, komend i skryptów poniżej tej linii ABSOLUTNIE NIE DOTYKAJ ani nie usuwaj!
+
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
