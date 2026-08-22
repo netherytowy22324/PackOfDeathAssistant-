@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits, MessageFlags, TextChannel } from "discord.js
 import { db, pendingFormAnswersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./lib/logger.js"; // <-- Poprawiona kropka
-  TextChannel,
+import { logger } from "../lib/logger.js";
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
