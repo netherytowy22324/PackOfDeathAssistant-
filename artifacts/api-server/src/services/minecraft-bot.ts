@@ -51,7 +51,7 @@ export function setDiscordRef(client: DiscordClient, channelId: string): void {
 }
 
 export function connectMinecraft(): void {
-  if (process.env["MC_BOT_ENABLED"] === "false") return; // disabled in this environment
+  if (process.env["MC_BOT_ENABLED"] !== "true") return; // disabled in this environment
   if (isConnected || isConnecting || reconnectTimer) return; // already up or a reconnect is pending
 
   isConnecting = true;
