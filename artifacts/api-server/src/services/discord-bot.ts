@@ -1,10 +1,8 @@
-import { Client, GatewayIntentBits, MessageFlags, TextChannel } from "discord.js";
-import { db, pendingFormAnswersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { logger } from "../lib/logger.js";
-
-// Reszty kodu, komend i skryptów poniżej tej linii ABSOLUTNIE NIE DOTYKAJ ani nie usuwaj!
-
+import {
+  Client,
+  GatewayIntentBits,
+  MessageFlags,
+  TextChannel,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
@@ -19,9 +17,10 @@ import { logger } from "../lib/logger.js";
   type Message,
   PermissionsBitField,
   ChannelType,
-  MessageFlags,
   Events,
 } from "discord.js";
+import { db, verifiedUsersTable, pendingFormAnswersTable, vacationRequestsTable, systemConfigTable } from "@workspace/db";
+import { asc, eq, gte, lt, lte } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { bridgeService } from "./bridge.js";
 import { generateVerificationCode, getVerificationStatusByDiscord, getVerificationStatusByMcNick, unlinkAccount, manualVerify, changeNick } from "./verification.js";
@@ -29,9 +28,6 @@ import { sendPrivateMessage, getPendingMessagesForDiscordId, markMessagesDeliver
 import { logChat, logEvent, getRecentLogs, getRecentChats } from "./system-log.js";
 import { sendChatMessage, getMcBotStatus, restartMinecraft, setVerificationSuccessCallback, getOnlinePlayers } from "./minecraft-bot.js";
 import { getRconStatus } from "./rcon.js";
-import { db } from "@workspace/db";
-import { verifiedUsersTable, pendingFormAnswersTable, vacationRequestsTable, systemConfigTable } from "@workspace/db";
-import { asc, eq, gte, lt, lte } from "drizzle-orm";
 
 const DISCORD_TOKEN = process.env["DISCORD_TOKEN"] ?? "";
 const GUILD_ID = process.env["DISCORD_GUILD_ID"] ?? "";
