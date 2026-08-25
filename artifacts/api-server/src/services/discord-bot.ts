@@ -3,6 +3,7 @@ import {
   GatewayIntentBits,
   MessageFlags,
   TextChannel,
+  Partials,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
