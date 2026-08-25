@@ -3,7 +3,7 @@ services:
     name: packsmp-discord-api
     runtime: node
     plan: free
-    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @workspace/admin-panel run build
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm --filter @workspace/api-server run build
     startCommand: pnpm --filter @workspace/db run push && pnpm --filter @workspace/api-server run prod
     healthCheckPath: /api/healthz
     autoDeploy: true
