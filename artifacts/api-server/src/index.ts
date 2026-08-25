@@ -9,7 +9,7 @@ async function main(): Promise<void> {
     await startDiscordBot();
   }
 
-  if (process.env["MC_BOT_ENABLED"] !== "false") {
+  if (process.env["MC_BOT_ENABLED"] === "true") {
     connectMinecraft();
     await connectRcon();
   }
