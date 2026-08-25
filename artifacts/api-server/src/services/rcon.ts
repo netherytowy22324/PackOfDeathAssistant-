@@ -12,6 +12,8 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let lastConnectAttempt = 0;
 
 export async function connectRcon(): Promise<void> {
+  if (process.env["MC_BOT_ENABLED"] !== "true") return;
+
   if (isConnected && rcon) return;
 
   // Throttle reconnect attempts
@@ -59,6 +61,7 @@ function scheduleReconnect(): void {
 }
 
 export async function sendRconCommand(command: string): Promise<string | null> {
+  if (process.env["MC_BOT_ENABLED"] !== "true") return null;
   if (!isConnected || !rcon) {
     logger.warn("RCON not connected, attempting reconnect");
     await connectRcon();
