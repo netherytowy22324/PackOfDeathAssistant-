@@ -38,5 +38,5 @@ MC_BOT_ENABLED = "false"
 DISCORD_BOT_ENABLED = "true"
 
 [userenv.production]
-MC_BOT_ENABLED = "true"
+MC_BOT_ENABLED = "false"
 DISCORD_BOT_ENABLED = "true"
