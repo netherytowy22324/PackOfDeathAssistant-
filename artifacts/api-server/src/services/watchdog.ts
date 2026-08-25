@@ -1,7 +1,5 @@
 import { logger } from "../lib/logger.js";
 import { getDiscordStatus, startDiscordBot } from "./discord-bot.js";
-import { getMcBotStatus, connectMinecraft } from "./minecraft-bot.js";
-import { connectRcon, getRconStatus } from "./rcon.js";
 import { logEvent } from "./system-log.js";
 import { cleanupExpiredCodes } from "./verification.js";
 import { cleanupExpiredVacations, cleanupStaleFormAnswers, backfillTicketForms } from "./discord-bot.js";
@@ -39,23 +37,7 @@ async function runHealthChecks(): Promise<void> {
     }
   }
 
-  // Check Minecraft bot — skip if disabled or already reconnecting
-  if (process.env["MC_BOT_ENABLED"] === "true") {
-    const mc = getMcBotStatus();
-    if (!mc.connected && !mc.reconnecting) {
-      logger.warn("Watchdog: MC bot not connected, attempting reconnect");
-      connectMinecraft();
-    }
-  }
-
-  // Check RCON (only when MC bot is enabled)
-  if (process.env["MC_BOT_ENABLED"] === "true") {
-    const rcon = getRconStatus();
-    if (!rcon.connected) {
-      connectRcon().catch(() => {});
-    }
-  }
-
+  // Minecraft bot and RCON are intentionally disabled.
   // Cleanup expired verification codes (once a minute)
   await cleanupExpiredCodes().catch(() => {});
 
