@@ -40,7 +40,7 @@ async function runHealthChecks(): Promise<void> {
   }
 
   // Check Minecraft bot — skip if disabled or already reconnecting
-  if (process.env["MC_BOT_ENABLED"] !== "false") {
+  if (process.env["MC_BOT_ENABLED"] === "true") {
     const mc = getMcBotStatus();
     if (!mc.connected && !mc.reconnecting) {
       logger.warn("Watchdog: MC bot not connected, attempting reconnect");
@@ -49,7 +49,7 @@ async function runHealthChecks(): Promise<void> {
   }
 
   // Check RCON (only when MC bot is enabled)
-  if (process.env["MC_BOT_ENABLED"] !== "false") {
+  if (process.env["MC_BOT_ENABLED"] === "true") {
     const rcon = getRconStatus();
     if (!rcon.connected) {
       connectRcon().catch(() => {});
