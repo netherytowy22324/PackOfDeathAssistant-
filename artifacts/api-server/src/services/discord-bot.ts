@@ -27,7 +27,7 @@ import { bridgeService } from "./bridge.js";
 import { generateVerificationCode, getVerificationStatusByDiscord, getVerificationStatusByMcNick, unlinkAccount, manualVerify, changeNick } from "./verification.js";
 import { sendPrivateMessage, getPendingMessagesForDiscordId, markMessagesDelivered } from "./privmsg.js";
 import { logChat, logEvent, getRecentLogs, getRecentChats } from "./system-log.js";
-import { sendChatMessage, getMcBotStatus, restartMinecraft, setVerificationSuccessCallback, getOnlinePlayers } from "./minecraft-bot.js";
+import { sendChatMessage, getMcBotStatus, restartMinecraft, setVerificationSuccessCallback, getOnlinePlayers, setDiscordRef } from "./minecraft-bot.js";
 import { getRconStatus } from "./rcon.js";
 
 const DISCORD_TOKEN = process.env["DISCORD_TOKEN"] ?? "";
@@ -446,6 +446,8 @@ export async function startDiscordBot(): Promise<void> {
     ],
     partials: [Partials.Channel, Partials.Message, Partials.User],
   });
+
+  setDiscordRef(client, CHAT_CHANNEL_ID);
 
   // Set MC verification success callback
   setVerificationSuccessCallback(async (discordId: string, mcNick: string) => {
