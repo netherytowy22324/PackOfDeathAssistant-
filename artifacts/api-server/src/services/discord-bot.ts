@@ -34,6 +34,8 @@ const DISCORD_TOKEN = process.env["DISCORD_TOKEN"] ?? "";
 const GUILD_ID = process.env["DISCORD_GUILD_ID"] ?? "";
 const BLACKLIST_CHANNEL_ID = "1536657390781472838";
 const RECRUIT_WAITING_CHANNEL_ID = "1534985918140649544";
+const RECRUITMENT_SUBMISSIONS_CHANNEL_ID = process.env["DISCORD_RECRUITMENT_CHANNEL_ID"] ?? "";
+const RECRUITMENT_SUBMISSIONS_CHANNEL_NAME = "podania-rekrutacyjne";
 const RECRUIT_ROLE_ID = "1534975728263626853";
 const NATION_ROLE_ID = "1535006748920778852";
 const GUILD_BACKUP_CONFIG_KEY = "discord_guild_backup_v1";
@@ -174,36 +176,36 @@ export async function cleanupExpiredVacations(): Promise<void> {
 
 
 
-// Globalny interceptor podmieniający wyjście rekrutacji
-// Przenosimy rejestrację eventu na koniec kolejki wykonania, aby uniknąć błędu przed inicjalizacją
-setTimeout(() => {
-  if (typeof client !== "undefined" && client) {
-    client.on("interactionCreate", async (interaction) => {
-      if (!interaction.isModalSubmit()) return;
-      const [prefix, ticketType, pageStr] = interaction.customId.split(":");
-      if (prefix !== "ticket_modal" || ticketType !== "rekrutacja") return;
-
-      const currentPage = parseInt(pageStr ?? "0", 10);
-      const form = DODATKOWE_FORMULARZE["rekrutacja"] || (typeof TICKET_FORMS !== "undefined" ? TICKET_FORMS["rekrutacja"] : null);
-      if (form && currentPage === form.pages.length - 1) {
-        const cacheKey = `form:${interaction.user.id}:rekrutacja`;
-        setTimeout(async () => {
-          try {
-            const rows = await db.select().from(pendingFormAnswersTable).where(eq(pendingFormAnswersTable.key, cacheKey));
-            if (rows.length > 0) {
-              const currentAnswers = JSON.parse(rows[0].answers);
-              await sendFormattedRecruitment(interaction, currentAnswers, RECRUIT_WAITING_CHANNEL_ID);
-            }
-          } catch (e) {
-            logger.error(e, "Błąd w przechwytywaniu wysyłki formularza");
-          }
-        }, 500);
-      }
-    });
-  }
-}, 1000);
-
- const DODATKOWE_FORMULARZE: any = {
+const TICKET_FORMS: Record<TicketType, TicketForm> = {
+  rekrutacja: {
+    title: "📝 Formularz rekrutacyjny",
+    intro: "Uzupełnij wszystkie trzy strony formularza. Odpowiedzi zostaną zapisane po każdej stronie.",
+    color: 0x3498DB,
+    footer: "PackSMP • Rekrutacja",
+    pages: [
+      [
+        { id: "mc_nick", label: "Nick Minecraft", placeholder: "Twój nick w Minecraft", style: TextInputStyle.Short },
+        { id: "age", label: "Wiek", placeholder: "Ile masz lat?", style: TextInputStyle.Short },
+        { id: "pronouns", label: "Jak się do Ciebie zwracać?", placeholder: "Podaj preferowaną formę", style: TextInputStyle.Short },
+        { id: "pvp", label: "Poziom PvP", placeholder: "Oceń swoje PvP w skali 1–10", style: TextInputStyle.Short },
+        { id: "build", label: "Poziom budowania", placeholder: "Oceń budowanie w skali 1–10", style: TextInputStyle.Short },
+      ],
+      [
+        { id: "activity_game", label: "Aktywność w grze", placeholder: "Ile dni/godzin grasz tygodniowo?", style: TextInputStyle.Short },
+        { id: "time_per_day", label: "Czas dzienny na grę", placeholder: "Np. 2–4 godziny dziennie", style: TextInputStyle.Short },
+        { id: "prev_nations", label: "Poprzednie państwa/klany", placeholder: "Gdzie wcześniej grałeś?", style: TextInputStyle.Paragraph },
+        { id: "prev_roles", label: "Poprzednie rangi/funkcje", placeholder: "Jakie pełniłeś funkcje?", style: TextInputStyle.Paragraph },
+        { id: "achievements", label: "Największe osiągnięcia", placeholder: "Opisz swoje osiągnięcia", style: TextInputStyle.Paragraph },
+      ],
+      [
+        { id: "best_at", label: "W czym jesteś najlepszy?", placeholder: "PvP, budowanie, ekonomia itd.", style: TextInputStyle.Short },
+        { id: "mic", label: "Czy masz sprawny mikrofon?", placeholder: "Tak/Nie", style: TextInputStyle.Short },
+        { id: "activity_dc", label: "Aktywność na Discordzie", placeholder: "Jak często jesteś dostępny?", style: TextInputStyle.Short },
+        { id: "why_us", label: "Dlaczego chcesz dołączyć?", placeholder: "Napisz konkretnie, dlaczego nasz klan", style: TextInputStyle.Paragraph },
+        { id: "why_you", label: "Dlaczego mamy wybrać Ciebie?", placeholder: "Przedstaw swoją kandydaturę", style: TextInputStyle.Paragraph },
+      ],
+    ],
+  },
   sojusz: {
     title: "🤝 Formularz sojuszu",
     intro: "Przedstaw propozycję sojuszu.",
@@ -784,6 +786,22 @@ export async function backfillTicketForms(): Promise<void> {
   }
 
   if (filled > 0) logger.info({ filled }, "Backfill: ticket forms sent");
+}
+
+async function getRecruitmentSubmissionsChannel(guild: any): Promise<TextChannel | null> {
+  if (!guild) return null;
+
+  if (RECRUITMENT_SUBMISSIONS_CHANNEL_ID) {
+    const configured = await guild.channels.fetch(RECRUITMENT_SUBMISSIONS_CHANNEL_ID).catch(() => null);
+    if (configured?.isTextBased?.() && !configured.isDMBased?.()) return configured as TextChannel;
+  }
+
+  const named = guild.channels.cache.find((candidate: any) =>
+    candidate?.isTextBased?.() &&
+    !candidate.isDMBased?.() &&
+    candidate.name?.toLowerCase() === RECRUITMENT_SUBMISSIONS_CHANNEL_NAME
+  );
+  return (named as TextChannel | undefined) ?? null;
 }
 
 // ── Shared ticket form sender ─────────────────────────────────────────────────
@@ -3707,10 +3725,22 @@ async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<v
   }
 
   if (ch?.isTextBased()) {
-    await (ch as TextChannel).send({
-      content: `📋 **Wypełniony formularz od** <@${interaction.user.id}>`,
+    const submissionContent =
+      `📋 **Wypełnione podanie rekrutacyjne**\n` +
+      `👤 Kandydat: <@${interaction.user.id}>\n` +
+      `🎫 Ticket: <#${interaction.channelId}>`;
+    const submissionMessage = {
+      content: submissionContent,
       embeds: resultEmbeds,
-    });
+      allowedMentions: { users: [interaction.user.id] },
+    };
+
+    await (ch as TextChannel).send(submissionMessage);
+
+    const submissionsChannel = await getRecruitmentSubmissionsChannel(interaction.guild);
+    if (submissionsChannel && submissionsChannel.id !== ch.id) {
+      await submissionsChannel.send(submissionMessage);
+    }
   } else {
     logger.error({ channelId: interaction.channelId, ticketType }, "handleModalSubmit: channel unavailable, form result not sent");
   }
