@@ -179,7 +179,7 @@ export async function cleanupExpiredVacations(): Promise<void> {
 const TICKET_FORMS: Record<TicketType, TicketForm> = {
   rekrutacja: {
     title: "📝 Formularz rekrutacyjny",
-    intro: "Uzupełnij wszystkie trzy strony formularza. Odpowiedzi zostaną zapisane po każdej stronie.",
+    intro: "Wpisz odpowiedzi pod każdym pytaniem i wyślij gotowy formularz jako wiadomość na tym tickecie.",
     color: 0x3498DB,
     footer: "PackSMP • Rekrutacja",
     pages: [
@@ -241,6 +241,8 @@ const TICKET_FORMS: Record<TicketType, TicketForm> = {
     ]]
   }
 }; // <--- TUTAJ ZAMYKA SIĘ OBIEKT TICKET_FORMS
+
+const RECRUITMENT_TEXT_FORM_MARKER = "📝 **FORMULARZ REKRUTACYJNY**";
 
 // DOPIERO TUTAJ (POZA OBIEKTEM) JEST MIEJSCE NA FUNKCJĘ
 async function sendFormattedRecruitment(interaction: any, answers: Record<string, string>, targetChannelId: string) {
@@ -462,12 +464,10 @@ export async function startDiscordBot(): Promise<void> {
     logger.info({ tag: client?.user?.tag }, "Discord bot ready");
     await logEvent("info", "discord", `Bot gotowy jako ${client?.user?.tag}`);
 
-    // ── Backfill: send forms to ticket channels that are missing them ──────────
-    // Runs every time the bot connects/reconnects. Catches channels created
-    // while the bot was offline (MC restarts, throttling, etc.).
+    // Backfill runs after startup, but not immediately alongside command traffic.
     setTimeout(() => backfillTicketForms().catch((err) => {
       logger.warn({ err: String(err) }, "Backfill ticket forms failed");
-    }), 5000); // 5s delay — let Discord finish feeding initial state
+    }), 30000); // low-priority scan after Discord has synced
   });
 
   client.on(Events.MessageCreate, async (message: Message) => {
@@ -510,8 +510,8 @@ export async function startDiscordBot(): Promise<void> {
   client.on(Events.ChannelCreate, async (channel) => {
     if (!channel.isTextBased()) return;
 
-    // Wait for the ticket bot to set up permissions and post its welcome message
-    await new Promise<void>((r) => setTimeout(r, 4000));
+    // Give the ticket bot a short head start without delaying handling by 4s.
+    await new Promise<void>((r) => setTimeout(r, 2000));
 
     try {
       const info = await detectTicketChannel(channel as TextChannel);
@@ -742,52 +742,80 @@ async function ensureRecruiterTicketAccess(channel: TextChannel): Promise<void> 
 // Called on every bot connect/reconnect AND every 5 minutes via watchdog.
 // Idempotent — skips channels where the bot already posted a form button.
 
+let backfillRunning = false;
+
 export async function backfillTicketForms(): Promise<void> {
-  if (!client?.isReady()) return;
+  if (backfillRunning || !client?.isReady()) return;
+  backfillRunning = true;
 
-  const guild = client.guilds.cache.first();
-  if (!guild) { logger.warn("Backfill: no guild found"); return; }
+  try {
+    const guild = client.guilds.cache.first();
+    if (!guild) { logger.warn("Backfill: no guild found"); return; }
 
-  const channels = await guild.channels.fetch();
-  const botId = client.user!.id;
+    const channels = await guild.channels.fetch();
+    const botId = client.user!.id;
+    const now = Date.now();
+    let filled = 0;
 
-  let filled = 0;
+    // Only inspect recent, ticket-looking text channels. The previous version
+    // fetched 50 messages from every channel every 5 minutes, competing with
+    // normal command requests and causing visible Discord delays.
+    const candidates = [...channels.values()].filter((ch) => {
+      const channelAny = ch as any;
+      if (!channelAny?.isTextBased?.() || channelAny.isDMBased?.()) return false;
+      const textChannel = ch as TextChannel;
+      if (TICKET_EXCLUDED_CHANNEL_IDS.has(textChannel.id)) return false;
+      const name = textChannel.name?.toLowerCase?.() ?? "";
+      const parentName = (textChannel as any).parent?.name?.toLowerCase?.() ?? "";
+      if (TICKET_EXCLUDED_NAME_FRAGMENTS.some((fragment) => name.includes(fragment))) return false;
+      const createdAt = (textChannel as any).createdTimestamp ?? 0;
+      if (!createdAt || now - createdAt > TICKET_MAX_AGE_MS) return false;
+      const looksLikeTicket =
+        name.includes("ticket") || name.includes("rekrut") || name.includes("recruit") ||
+        name.includes("aplik") || name.includes("sojusz") || name.includes("konkurs") ||
+        name.includes("nagroda") || name.includes("walka") || name.includes("wyzwanie") ||
+        parentName.includes("ticket") || parentName.includes("zgłos") ||
+        parentName.includes("rekrut");
+      const hasMemberOverwrite = (textChannel as any).permissionOverwrites?.cache?.some?.((ow: any) => ow.type === 1);
+      return looksLikeTicket || hasMemberOverwrite;
+    }) as TextChannel[];
 
-  for (const [, ch] of channels) {
-    if (!ch || !ch.isTextBased()) continue;
-
-    try {
-      // Skip if bot already posted a form button here
-      const messages = await (ch as TextChannel).messages.fetch({ limit: 50 });
-      const alreadySent = [...messages.values()].some(
-        (m) => m.author.id === botId &&
-          m.components.some((row) =>
-            (row as any).components?.some(
-              (c: any) => typeof c?.customId === "string" &&
-                c.customId.startsWith("fill_form_page:")
+    for (const channel of candidates) {
+      try {
+        // Ten messages are enough to detect both old button forms and the new form.
+        const messages = await channel.messages.fetch({ limit: 10 });
+        const alreadySent = [...messages.values()].some((message) => {
+          if (message.author.id !== botId) return false;
+          const hasPlainTextForm = message.content.includes(RECRUITMENT_TEXT_FORM_MARKER);
+          const hasLegacyButtonForm = message.components.some((row) =>
+            (row as any).components?.some((component: any) =>
+              typeof component?.customId === "string" && component.customId.startsWith("fill_form_page:")
             )
-          )
-      );
-      if (alreadySent) continue;
+          );
+          return hasPlainTextForm || hasLegacyButtonForm;
+        });
+        if (alreadySent) continue;
 
-      const info = await detectTicketChannel(ch as TextChannel);
-      if (!info) continue;
+        const info = await detectTicketChannel(channel);
+        if (!info) continue;
 
-      await ensureRecruiterTicketAccess(ch as TextChannel);
-      logger.info({ channelId: ch.id, channelName: ch.name, ticketType: info.ticketType, userId: info.userId }, "Backfill: sending form to missed ticket channel");
-      await sendTicketFormToChannel(ch as TextChannel, info.ticketType, info.userId, info.mentioned, ch.name.toLowerCase());
-      filled++;
+        await ensureRecruiterTicketAccess(channel);
+        logger.info({ channelId: channel.id, channelName: channel.name, ticketType: info.ticketType, userId: info.userId }, "Backfill: sending form to missed ticket channel");
+        await sendTicketFormToChannel(channel, info.ticketType, info.userId, info.mentioned, channel.name.toLowerCase());
+        filled++;
 
-      // Pace sends to avoid Discord rate limits
-      await new Promise<void>((r) => setTimeout(r, 2500));
-    } catch (err) {
-      logger.warn({ err: String(err), channelId: ch.id }, "Backfill: failed to process channel");
+        // Keep a modest pace without holding the Discord REST queue for seconds.
+        await new Promise<void>((resolve) => setTimeout(resolve, 750));
+      } catch (err) {
+        logger.warn({ err: String(err), channelId: channel.id }, "Backfill: failed to process channel");
+      }
     }
+
+    if (filled > 0) logger.info({ filled }, "Backfill: ticket forms sent");
+  } finally {
+    backfillRunning = false;
   }
-
-  if (filled > 0) logger.info({ filled }, "Backfill: ticket forms sent");
 }
-
 async function getRecruitmentSubmissionsChannel(guild: any): Promise<TextChannel | null> {
   if (!guild) return null;
 
@@ -815,42 +843,67 @@ async function sendTicketFormToChannel(
   channelName: string,
 ): Promise<void> {
   const form = TICKET_FORMS[ticketType];
-  const safeUid = userId ?? "unknown";
-  const pageCountLabel = form.pages.length === 1
-    ? "Wypełnij formularz poniżej."
-    : `Wypełnij wszystkie ${form.pages.length} strony formularza poniżej.`;
 
-  await channel.send({
-    content:
-      `👋 Witaj${userId ? ` <@${userId}>` : ""}!\n\n` +
-      `${form.intro}\n\n` +
-      `${pageCountLabel} ⬇️`,
-  });
+  if (ticketType === "rekrutacja") {
+    const questions = form.pages
+      .flatMap((page) => page)
+      .map((field, index) =>
+        `${index + 1}. **${field.label}**\n   _${field.placeholder}_\n   Odpowiedź:`
+      )
+      .join("\n\n");
 
-  // Each page is a separate message + button (Discord modals can't change pages)
-  for (const [pageIndex] of form.pages.entries()) {
-    const pageButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`fill_form_page:${ticketType}:${safeUid}:${pageIndex}`)
-        .setLabel(`📝 Otwórz formularz — ${pageIndex + 1}. strona`)
-        .setStyle(ButtonStyle.Primary)
-    );
+    const recruitmentMessage = [
+      RECRUITMENT_TEXT_FORM_MARKER,
+      "",
+      userId ? `👋 Witaj <@${userId}>!` : "👋 Witaj!",
+      "",
+      form.intro,
+      "",
+      "✍️ Skopiuj pytania, wpisz odpowiedzi po słowie **Odpowiedź:** i wyślij całość jako wiadomość na tym tickecie.",
+      "",
+      questions,
+    ].join("\n");
+
+    await channel.send({ content: recruitmentMessage });
+    logger.info({ channelId: channel.id, ticketType, userId, messageLength: recruitmentMessage.length }, "Plain-text recruitment form sent");
+  } else {
+    const safeUid = userId ?? "unknown";
+    const pageCountLabel = form.pages.length === 1
+      ? "Wypełnij formularz poniżej."
+      : `Wypełnij wszystkie ${form.pages.length} strony formularza poniżej.`;
+
     await channel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle(`📋 Formularz — ${pageIndex + 1}. strona`)
-          .setColor(form.color)
-          .setDescription(
-            `${form.title}\n\n` +
-            `Kliknij przycisk poniżej, aby wypełnić **${pageIndex + 1}. stronę** formularza.`
-          )
-          .setFooter({ text: `${form.footer} • Strona ${pageIndex + 1}/${form.pages.length}` }),
-      ],
-      components: [pageButton],
+      content:
+        `👋 Witaj${userId ? ` <@${userId}>` : ""}!\n\n` +
+        `${form.intro}\n\n` +
+        `${pageCountLabel} ⬇️`,
     });
-  }
 
-  logger.info({ channelId: channel.id, ticketType, userId }, "Ticket form prompt sent");
+    // Other ticket types keep their existing modal flow.
+    for (const [pageIndex] of form.pages.entries()) {
+      const pageButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`fill_form_page:${ticketType}:${safeUid}:${pageIndex}`)
+          .setLabel(`📝 Otwórz formularz — ${pageIndex + 1}. strona`)
+          .setStyle(ButtonStyle.Primary)
+      );
+      await channel.send({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(`📋 Formularz — ${pageIndex + 1}. strona`)
+            .setColor(form.color)
+            .setDescription(
+              `${form.title}\n\n` +
+              `Kliknij przycisk poniżej, aby wypełnić **${pageIndex + 1}. stronę** formularza.`
+            )
+            .setFooter({ text: `${form.footer} • Strona ${pageIndex + 1}/${form.pages.length}` }),
+        ],
+        components: [pageButton],
+      });
+    }
+
+    logger.info({ channelId: channel.id, ticketType, userId }, "Ticket form prompt sent");
+  }
 
   // ── Blacklist check (only for rekrutacja) ──────────────────────────────────
   if (ticketType === "rekrutacja") {
