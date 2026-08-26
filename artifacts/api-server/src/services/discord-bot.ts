@@ -3134,10 +3134,20 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
   } else if (interaction.customId.startsWith("fill_form_page:")) {
     // Multi-page form — subsequent pages triggered by ephemeral button
     // customId: fill_form_page:<type>:<userId>:<pageIndex>
-    const [, type, , pageStr] = interaction.customId.split(":");
+    const [, type, targetId, pageStr] = interaction.customId.split(":");
     const ticketType = type as TicketType | undefined;
     const pageIndex = parseInt(pageStr ?? "1", 10);
     const form = ticketType ? TICKET_FORMS[ticketType] : undefined;
+
+    const member = interaction.member as any;
+    const canManageForms =
+      member?.permissions?.has?.(PermissionsBitField.Flags.Administrator) ||
+      member?.permissions?.has?.(PermissionsBitField.Flags.ManageGuild) ||
+      member?.roles?.cache?.has?.(RECRUIT_ROLE_ID);
+    if (targetId && targetId !== "unknown" && targetId !== interaction.user.id && !canManageForms) {
+      await interaction.reply({ content: "❌ Ten formularz jest przypisany do autora tego ticketu.", flags: MessageFlags.Ephemeral });
+      return;
+    }
     if (!form || !ticketType || pageIndex >= form.pages.length) {
       await interaction.reply({ content: "❌ Nie udało się otworzyć formularza.", flags: MessageFlags.Ephemeral });
       return;
