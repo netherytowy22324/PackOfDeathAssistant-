@@ -3140,13 +3140,16 @@ async function sendTicketTranscript(channel: TextChannel, reason: string): Promi
     const attachments = [...message.attachments.values()].map((attachment) => attachment.url).join(" ");
     return `[${new Date(message.createdTimestamp).toISOString()}] ${message.author.tag} (${message.author.id}): ${body}${attachments ? ` | Załączniki: ${attachments}` : ""}`;
   });
-  const header = new EmbedBuilder().setTitle("🧾 Transkrypcja usuniętego ticketu").setColor(0xED4245).addFields({ name: "Kanał", value: `#${channel.name}`, inline: true }, { name: "Usunięty przez", value: "Obsługa ticketów", inline: true }, { name: "Powód", value: reason.slice(0, 1024), inline: false }, { name: "Zakres", value: `Ostatnie ${ordered.length} wiadomości`, inline: false }).setTimestamp();
+  const header = new EmbedBuilder().setTitle("🧾 Transkrypcja usuniętego ticketu").setColor(0xED4245).addFields({ name: "Kanał", value: `#${channel.name}`, inline: true }, { name: "Usunięty przez", value: "Obsługa ticketów", inline: true }, { name: "Powód", value: reason.slice(0, 1024), inline: false }, { name: "Zakres", value: `Wszystkie ${ordered.length} wiadomości (pełna historia)`, inline: false }).setTimestamp();
   await logChannel.send({ embeds: [header] });
   if (lines.length === 0) { await logChannel.send({ content: "[Ticket nie zawierał wiadomości tekstowych.]" }); return true; }
   let chunk = "";
   for (const line of lines) {
-    if ((chunk + line + "\n").length > 1800) { await logChannel.send({ content: "```text\n" + chunk + "```" }); chunk = ""; }
-    chunk += line + "\n";
+    const fragments = line.match(/.{1,1700}/gs) ?? [line];
+    for (const fragment of fragments) {
+      if ((chunk + fragment + "\n").length > 1800) { await logChannel.send({ content: "```text\n" + chunk + "```" }); chunk = ""; }
+      chunk += fragment + "\n";
+    }
   }
   if (chunk) await logChannel.send({ content: "```text\n" + chunk + "```" });
   return true;
