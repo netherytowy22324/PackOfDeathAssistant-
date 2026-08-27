@@ -290,7 +290,7 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
 ];
 
 const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
-const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1534975728263626853", "1532085181111079054", "1536764016574070884", ...(process.env["DISCORD_TICKET_STAFF_ROLE_IDS"] ?? "").split(",").map((roleId) => roleId.trim()).filter(Boolean)])];
+const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1532085891638628362", "1532085181111079054", "1536764016574070884", ...(process.env["DISCORD_TICKET_STAFF_ROLE_IDS"] ?? "").split(",").map((roleId) => roleId.trim()).filter(Boolean)])];
 type TicketStage = "important" | "stage1" | "stage2" | "stage3" | "archive";
 type TicketStageOption = { value: TicketStage; label: string; description: string; aliases: string[] };
 
