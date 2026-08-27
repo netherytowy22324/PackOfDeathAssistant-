@@ -290,7 +290,7 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
 ];
 
 const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
-const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1534975728263626853", "1532085181111079054"])];
+const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1534975728263626853", "1532085181111079054", ...(process.env["DISCORD_TICKET_STAFF_ROLE_IDS"] ?? "").split(",").map((roleId) => roleId.trim()).filter(Boolean)])];
 type TicketStage = "important" | "stage1" | "stage2" | "stage3" | "archive";
 type TicketStageOption = { value: TicketStage; label: string; description: string; aliases: string[] };
 
@@ -1002,6 +1002,8 @@ async function sendTicketFormToChannel(
     inne:       { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Zamknij ticket" },
   };
   const lbl = adminLabels[ticketType];
+
+  const safeUid = userId ?? "unknown";
 
   const adminEmbed = new EmbedBuilder()
     .setTitle("🛡️ Panel administracyjny")
@@ -3112,10 +3114,26 @@ async function findTicketLogChannel(guild: any): Promise<TextChannel | null> {
   return guild.channels.cache.find((candidate: any) => candidate?.isTextBased?.() && !candidate.isDMBased?.() && new Set(["logi-tickety", "tickety-logi"]).has(candidate.name?.toLowerCase?.())) as TextChannel | null ?? null;
 }
 
+async function fetchAllTicketMessages(channel: TextChannel): Promise<Map<string, Message>> {
+  const collected = new Map<string, Message>();
+  let before: string | undefined;
+  const maxMessages = 10000;
+  while (collected.size < maxMessages) {
+    const batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+    if (batch.size === 0) break;
+    for (const message of batch.values()) collected.set(message.id, message);
+    if (batch.size < 100) break;
+    const batchMessages = [...batch.values()];
+    const oldest = batchMessages[batchMessages.length - 1];
+    if (!oldest || oldest.id === before) break;
+    before = oldest.id;
+  }
+  return collected;
+}
 async function sendTicketTranscript(channel: TextChannel, reason: string): Promise<boolean> {
   const logChannel = await findTicketLogChannel(channel.guild);
   if (!logChannel) return false;
-  const messages = await channel.messages.fetch({ limit: 100 });
+  const messages = await fetchAllTicketMessages(channel);
   const ordered = [...messages.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
   const lines = ordered.map((message) => {
     const body = (message.content || "[embed/bez treści]").replace(/```/g, "'''");
