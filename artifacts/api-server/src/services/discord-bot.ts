@@ -290,7 +290,7 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
 ];
 
 const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
-const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1534975728263626853", "1532085181111079054", ...(process.env["DISCORD_TICKET_STAFF_ROLE_IDS"] ?? "").split(",").map((roleId) => roleId.trim()).filter(Boolean)])];
+const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1534975728263626853", "1532085181111079054", "1536764016574070884", ...(process.env["DISCORD_TICKET_STAFF_ROLE_IDS"] ?? "").split(",").map((roleId) => roleId.trim()).filter(Boolean)])];
 type TicketStage = "important" | "stage1" | "stage2" | "stage3" | "archive";
 type TicketStageOption = { value: TicketStage; label: string; description: string; aliases: string[] };
 
@@ -1030,7 +1030,7 @@ function isAdmin(message: Message): boolean {
 }
 
 function hasRecruiterAccess(message: Message): boolean {
-  return isAdmin(message) || Boolean(message.member?.roles.cache.has(RECRUIT_ROLE_ID));
+  return isAdmin(message) || TICKET_STAFF_ROLE_IDS.some((roleId) => message.member?.roles.cache.has(roleId));
 }
 
 type GuildBackupRole = {
@@ -1325,7 +1325,7 @@ export const PLAYER_CMD_REGISTRY: CmdSection[] = [
   {
     emoji: "🎫", header: "Tickety",
     cmds: [
-      { name: "=rekruter",                     desc: "Dodaje rangę rekruterów do bieżącego ticketu" },
+      { name: "=rekruter",                     desc: "Dodaje rangę rekruterów do bieżącego ticketu (rekruterzy i role obsługi)" },
     ],
   },
 ];
@@ -1335,7 +1335,10 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
     emoji: "🎫", header: "Tickety",
     cmds: [
       { name: "=panel-ticket / =ticket-panel", desc: "Wysyła panel wyboru i tworzenia prywatnych ticketów" },
-      { name: "=formularz [typ]", desc: "Wysyła formularz do bieżącego kanału ticketu (typ: rekrutacja/sojusz/konkurs/walka). Jeśli typ pominięty — auto-wykrywa z nazwy kanału." },
+      { name: "=formularz [typ]", desc: "Wysyła tekstowy formularz ticketu: rekrutacja/sojusz/konkurs/walka/wsparcie/event/inne; bez typu wykrywa go z nazwy kanału." },
+      { name: "🎫 Przyciski panelu ticketu", desc: "Przejmij, zamknij, otwórz ponownie, archiwizuj albo usuń ticket z transkrypcją; dostęp ma rekruter i role obsługi." },
+      { name: "📂 Etapy ticketu", desc: "Rekruterzy i role obsługi mogą przenieść ticket do: Ważne, 1 etap, 2 etap, 3 etap lub Archiwum." },
+      { name: "🧾 Logi ticketów", desc: "Przed usunięciem ticketu bot zapisuje pełną historię wiadomości na kanale logów." },
       { name: "=wynik-formularz", desc: "Wysyła formularz wyniku rekrutacji (rekruterzy/admini)" },
       { name: "=formularz-wyniki", desc: "Alias formularza wyniku rekrutacji (rekruterzy/admini)" },
       { name: "=urlop-panel", desc: "Wysyła profesjonalny panel składania wniosku urlopowego" },
@@ -1469,6 +1472,15 @@ for (const alias of [
   REGISTERED_DISCORD_COMMANDS.add(alias);
 }
 
+const TICKET_STAFF_COMMANDS = new Set([
+  "rekruter",
+  "wynik-formularz",
+  "formularz-wyniki",
+  "wstrzymaj-ticket",
+  "wznow-ticket",
+  "wznów-ticket",
+]);
+
 const PUBLIC_DISCORD_COMMANDS = new Set([
   "help",
   "pomoc",
@@ -1500,7 +1512,8 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
   if (
     REGISTERED_DISCORD_COMMANDS.has(cmd) &&
     !PUBLIC_DISCORD_COMMANDS.has(cmd) &&
-    !isAdmin(message)
+    !isAdmin(message) &&
+    !(TICKET_STAFF_COMMANDS.has(cmd) && hasRecruiterAccess(message))
   ) {
     await message.reply("❌ Ta komenda jest dostępna tylko dla osób z rangą posiadającą uprawnienie **Administrator**.");
     return;
