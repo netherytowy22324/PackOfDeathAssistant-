@@ -49,7 +49,7 @@ const MODERATOR_ROLE_ID = "1532085181111079054";
 const SMP_ROLE_ID = "1533741682380636281";
 const SMP_ROLE_CHANNEL_ID = "1537412979652436069";
 
-type TicketType = "rekrutacja" | "sojusz" | "konkurs" | "walka";
+type TicketType = "rekrutacja" | "sojusz" | "konkurs" | "wsparcie" | "event" | "walka" | "inne";
 type TicketFormField = {
   id: string;
   label: string;
@@ -239,10 +239,68 @@ const TICKET_FORMS: Record<TicketType, TicketForm> = {
       { id: "opponent", label: "Przeciwnik", placeholder: "Kogo wyzywasz na pojedynek?", style: TextInputStyle.Short, required: true },
       { id: "date", label: "Proponowana data", placeholder: "Kiedy chcesz stoczyć walkę?", style: TextInputStyle.Short, required: true }
     ]]
+  },
+  wsparcie: {
+    title: "🛠️ Zgłoszenie do wsparcia",
+    intro: "Opisz dokładnie problem — członek administracji odpowie na tym tickecie.",
+    color: 0x5865F2,
+    footer: "PackSMP • Wsparcie",
+    pages: [[
+      { id: "topic", label: "Temat sprawy", placeholder: "Czego dotyczy zgłoszenie?", style: TextInputStyle.Short },
+      { id: "description", label: "Opis problemu", placeholder: "Opisz problem i podaj najważniejsze szczegóły", style: TextInputStyle.Paragraph },
+      { id: "proof", label: "Dowody / dodatkowe informacje", placeholder: "Linki, screeny lub inne informacje", style: TextInputStyle.Paragraph }
+    ]]
+  },
+  event: {
+    title: "🎉 Zgłoszenie dotyczące eventu",
+    intro: "Podaj szczegóły dotyczące eventu lub swojego zgłoszenia.",
+    color: 0xFEE75C,
+    footer: "PackSMP • Eventy",
+    pages: [[
+      { id: "event_name", label: "Nazwa eventu", placeholder: "Którego eventu dotyczy sprawa?", style: TextInputStyle.Short },
+      { id: "mc_nick", label: "Nick Minecraft", placeholder: "Twój nick na serwerze", style: TextInputStyle.Short },
+      { id: "event_message", label: "Treść zgłoszenia", placeholder: "Opisz pytanie, problem lub propozycję", style: TextInputStyle.Paragraph }
+    ]]
+  },
+  inne: {
+    title: "📩 Pozostała sprawa",
+    intro: "Opisz, w czym potrzebujesz pomocy.",
+    color: 0x95A5A6,
+    footer: "PackSMP • Kontakt",
+    pages: [[
+      { id: "subject", label: "Temat", placeholder: "Krótki temat ticketu", style: TextInputStyle.Short },
+      { id: "description", label: "Opis sprawy", placeholder: "Opisz dokładnie, czego potrzebujesz", style: TextInputStyle.Paragraph }
+    ]]
   }
 }; // <--- TUTAJ ZAMYKA SIĘ OBIEKT TICKET_FORMS
 
+const TICKET_FORM_MARKER = "📋 **FORMULARZ TICKETU**";
+const TICKET_CONTROL_PANEL_MARKER = "🎫 **PANEL ZARZĄDZANIA TICKETEM**";
 const RECRUITMENT_TEXT_FORM_MARKER = "📝 **FORMULARZ REKRUTACYJNY**";
+type TicketPanelOption = { value: TicketType; label: string; description: string; emoji: string };
+
+const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
+  { value: "rekrutacja", label: "Rekrutacja", description: "Złóż podanie do PackSMP", emoji: "📝" },
+  { value: "sojusz", label: "Sojusz", description: "Zaproponuj współpracę lub sojusz", emoji: "🤝" },
+  { value: "konkurs", label: "Odbiór nagrody", description: "Zgłoś wygraną i odbierz nagrodę", emoji: "🏆" },
+  { value: "wsparcie", label: "Wsparcie", description: "Zgłoś problem administracji", emoji: "🛠️" },
+  { value: "event", label: "Event", description: "Pytanie lub zgłoszenie dotyczące eventu", emoji: "🎉" },
+  { value: "walka", label: "Klatki / walka", description: "Zgłoś pojedynek lub wyzwanie", emoji: "⚔️" },
+  { value: "inne", label: "Coś innego", description: "Pozostała sprawa lub kontakt z ekipą", emoji: "📩" },
+];
+
+const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
+const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1534975728263626853", "1532085181111079054"])];
+type TicketStage = "important" | "stage1" | "stage2" | "stage3" | "archive";
+type TicketStageOption = { value: TicketStage; label: string; description: string; aliases: string[] };
+
+const TICKET_STAGE_OPTIONS: TicketStageOption[] = [
+  { value: "important", label: "Ważne", description: "Przenieś do kategorii ważnych ticketów", aliases: ["ważne", "wazne", "important"] },
+  { value: "stage1", label: "1 etap", description: "Pierwszy etap rekrutacji", aliases: ["1 etap", "etap 1", "etap-1", "stage 1", "stage-1"] },
+  { value: "stage2", label: "2 etap", description: "Drugi etap rekrutacji", aliases: ["2 etap", "etap 2", "etap-2", "stage 2", "stage-2"] },
+  { value: "stage3", label: "3 etap", description: "Trzeci etap rekrutacji", aliases: ["3 etap", "etap 3", "etap-3", "stage 3", "stage-3"] },
+  { value: "archive", label: "Archiwum", description: "Zamknij i przenieś ticket do archiwum", aliases: ["archiwum", "archive", "archiwum ticketów", "archiwum ticketow"] },
+];
 
 // DOPIERO TUTAJ (POZA OBIEKTEM) JEST MIEJSCE NA FUNKCJĘ
 async function sendFormattedRecruitment(interaction: any, answers: Record<string, string>, targetChannelId: string) {
@@ -517,6 +575,7 @@ export async function startDiscordBot(): Promise<void> {
       const info = await detectTicketChannel(channel as TextChannel);
       if (!info) return; // not a ticket channel
       await ensureRecruiterTicketAccess(channel as TextChannel);
+      await ensureTicketControlPanel(channel as TextChannel, info.ticketType, info.userId);
       logger.info({ channelId: channel.id, channelName: (channel as any).name, ticketType: info.ticketType }, "Ticket channel detected via ChannelCreate");
       await sendTicketFormToChannel(channel as TextChannel, info.ticketType, info.userId, info.mentioned, (channel as any).name?.toLowerCase() ?? "");
     } catch (err) {
@@ -648,8 +707,8 @@ async function detectTicketChannel(channel: TextChannel): Promise<TicketDetectio
     name.includes("wasal") || name.includes("alliance") ||
     name.includes("konkurs") || name.includes("nagroda") ||
     name.includes("walka") || name.includes("klatka") ||
-    name.includes("wyzwanie") || name.includes("fight") ||
-    name.includes("ticket") || name.includes("zgloszenie") ||
+    name.includes("wyzwanie") || name.includes("fight") || name.includes("wsparcie") ||
+    name.includes("event") || name.includes("inne") || name.includes("ticket") || name.includes("zgloszenie") ||
     name.includes("zgłoszenie") ||
     parentName.includes("ticket") || parentName.includes("support") ||
     parentName.includes("pomoc") || parentName.includes("zgłoszenia") ||
@@ -706,9 +765,16 @@ async function detectTicketChannel(channel: TextChannel): Promise<TicketDetectio
   } else if (name.includes("konkurs") || name.includes("nagroda") ||
              has(["wygrałem", "wygralem", "konkurs", "zająłem miejsce", "nagroda za", "wygrana"])) {
     ticketType = "konkurs";
+  } else if (name.includes("wsparcie") || name.includes("support") || name.includes("pomoc") ||
+             has(["wsparcie", "support", "pomoc", "problem"])) {
+    ticketType = "wsparcie";
+  } else if (name.includes("event") || name.includes("wydarzen") || has(["event", "wydarzenie"])) {
+    ticketType = "event";
   } else if (name.includes("walka") || name.includes("klatka") || name.includes("wyzwanie") ||
              has(["walka klatki", "zawalczyć", "zawalczyc", "klatka", "pojedynek", "wyzwam"])) {
     ticketType = "walka";
+  } else if (name.includes("inne") || name.includes("pozostale") || name.includes("pozostałe")) {
+    ticketType = "inne";
   } else {
     ticketType = "rekrutacja"; // default — most common ticket type
   }
@@ -717,24 +783,13 @@ async function detectTicketChannel(channel: TextChannel): Promise<TicketDetectio
 }
 
 async function ensureRecruiterTicketAccess(channel: TextChannel): Promise<void> {
-  try {
-    await channel.permissionOverwrites.edit(RECRUIT_ROLE_ID, {
-      ViewChannel: true,
-      SendMessages: true,
-      ReadMessageHistory: true,
-      EmbedLinks: true,
-      AttachFiles: true,
-      AddReactions: true,
-    });
-    logger.info(
-      { channelId: channel.id, roleId: RECRUIT_ROLE_ID },
-      "Recruiter role granted access to ticket",
-    );
-  } catch (err) {
-    logger.warn(
-      { err: String(err), channelId: channel.id, roleId: RECRUIT_ROLE_ID },
-      "Failed to grant recruiter role access to ticket",
-    );
+  for (const roleId of TICKET_STAFF_ROLE_IDS) {
+    try {
+      await channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true, EmbedLinks: true, AttachFiles: true, AddReactions: true });
+      logger.info({ channelId: channel.id, roleId }, "Ticket staff role granted access");
+    } catch (err) {
+      logger.warn({ err: String(err), channelId: channel.id, roleId }, "Failed to grant ticket staff role access");
+    }
   }
 }
 
@@ -773,7 +828,7 @@ export async function backfillTicketForms(): Promise<void> {
       const looksLikeTicket =
         name.includes("ticket") || name.includes("rekrut") || name.includes("recruit") ||
         name.includes("aplik") || name.includes("sojusz") || name.includes("konkurs") ||
-        name.includes("nagroda") || name.includes("walka") || name.includes("wyzwanie") ||
+        name.includes("nagroda") || name.includes("walka") || name.includes("wyzwanie") || name.includes("wsparcie") || name.includes("event") || name.includes("inne") ||
         parentName.includes("ticket") || parentName.includes("zgłos") ||
         parentName.includes("rekrut");
       const hasMemberOverwrite = (textChannel as any).permissionOverwrites?.cache?.some?.((ow: any) => ow.type === 1);
@@ -786,7 +841,7 @@ export async function backfillTicketForms(): Promise<void> {
         const messages = await channel.messages.fetch({ limit: 10 });
         const alreadySent = [...messages.values()].some((message) => {
           if (message.author.id !== botId) return false;
-          const hasPlainTextForm = message.content.includes(RECRUITMENT_TEXT_FORM_MARKER);
+          const hasPlainTextForm = message.content.includes(TICKET_FORM_MARKER) || message.content.includes(RECRUITMENT_TEXT_FORM_MARKER);
           const hasLegacyButtonForm = message.components.some((row) =>
             (row as any).components?.some((component: any) =>
               typeof component?.customId === "string" && component.customId.startsWith("fill_form_page:")
@@ -843,7 +898,7 @@ async function sendTicketFormToChannel(
   channelName: string,
 ): Promise<void> {
   const form = TICKET_FORMS[ticketType];
-
+  const botId = client?.user?.id;  const recent = await channel.messages.fetch({ limit: 25 }).catch(() => null);  if (botId && [...(recent?.values?.() ?? [])].some((message: any) => message.author?.id === botId && (message.content?.includes(TICKET_FORM_MARKER) || message.content?.includes(RECRUITMENT_TEXT_FORM_MARKER)))) return;  await ensureTicketControlPanel(channel, ticketType, userId);
   if (ticketType === "rekrutacja") {
     const questions = form.pages
       .flatMap((page) => page)
@@ -853,6 +908,7 @@ async function sendTicketFormToChannel(
       .join("\n\n");
 
     const recruitmentMessage = [
+      TICKET_FORM_MARKER,
       RECRUITMENT_TEXT_FORM_MARKER,
       "",
       userId ? `👋 Witaj <@${userId}>!` : "👋 Witaj!",
@@ -867,42 +923,28 @@ async function sendTicketFormToChannel(
     await channel.send({ content: recruitmentMessage });
     logger.info({ channelId: channel.id, ticketType, userId, messageLength: recruitmentMessage.length }, "Plain-text recruitment form sent");
   } else {
-    const safeUid = userId ?? "unknown";
-    const pageCountLabel = form.pages.length === 1
-      ? "Wypełnij formularz poniżej."
-      : `Wypełnij wszystkie ${form.pages.length} strony formularza poniżej.`;
+    const questions = form.pages
+      .flatMap((page) => page)
+      .map((field, index) =>
+        `${index + 1}. **${field.label}**\n   _${field.placeholder}_\n   Odpowiedź:`
+      )
+      .join("\n\n");
 
-    await channel.send({
-      content:
-        `👋 Witaj${userId ? ` <@${userId}>` : ""}!\n\n` +
-        `${form.intro}\n\n` +
-        `${pageCountLabel} ⬇️`,
-    });
+    const textForm = [
+      TICKET_FORM_MARKER,
+      ticketType === "rekrutacja" ? RECRUITMENT_TEXT_FORM_MARKER : `📌 **${form.title}**`,
+      "",
+      userId ? `👋 Witaj <@${userId}>!` : "👋 Witaj!",
+      "",
+      form.intro,
+      "",
+      "✍️ Skopiuj pytania, wpisz odpowiedzi po słowie **Odpowiedź:** i wyślij całość jako jedną wiadomość na tym tickecie.",
+      "",
+      questions,
+    ].join("\n");
 
-    // Other ticket types keep their existing modal flow.
-    for (const [pageIndex] of form.pages.entries()) {
-      const pageButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`fill_form_page:${ticketType}:${safeUid}:${pageIndex}`)
-          .setLabel(`📝 Otwórz formularz — ${pageIndex + 1}. strona`)
-          .setStyle(ButtonStyle.Primary)
-      );
-      await channel.send({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle(`📋 Formularz — ${pageIndex + 1}. strona`)
-            .setColor(form.color)
-            .setDescription(
-              `${form.title}\n\n` +
-              `Kliknij przycisk poniżej, aby wypełnić **${pageIndex + 1}. stronę** formularza.`
-            )
-            .setFooter({ text: `${form.footer} • Strona ${pageIndex + 1}/${form.pages.length}` }),
-        ],
-        components: [pageButton],
-      });
-    }
-
-    logger.info({ channelId: channel.id, ticketType, userId }, "Ticket form prompt sent");
+    await channel.send({ content: textForm });
+    logger.info({ channelId: channel.id, ticketType, userId, messageLength: textForm.length }, "Plain-text ticket form sent");
   }
 
   // ── Blacklist check (only for rekrutacja) ──────────────────────────────────
@@ -955,6 +997,9 @@ async function sendTicketFormToChannel(
     sojusz:     { accept: "✅ Zaakceptuj sojusz",   reject: "❌ Odrzuć" },
     konkurs:    { accept: "✅ Potwierdź wygraną",   reject: "❌ Odrzuć" },
     walka:      { accept: "✅ Zatwierdź walkę",     reject: "❌ Odrzuć" },
+    wsparcie:   { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Zamknij zgłoszenie" },
+    event:      { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Odrzuć" },
+    inne:       { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Zamknij ticket" },
   };
   const lbl = adminLabels[ticketType];
 
@@ -1287,6 +1332,7 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
   {
     emoji: "🎫", header: "Tickety",
     cmds: [
+      { name: "=panel-ticket / =ticket-panel", desc: "Wysyła panel wyboru i tworzenia prywatnych ticketów" },
       { name: "=formularz [typ]", desc: "Wysyła formularz do bieżącego kanału ticketu (typ: rekrutacja/sojusz/konkurs/walka). Jeśli typ pominięty — auto-wykrywa z nazwy kanału." },
       { name: "=wynik-formularz", desc: "Wysyła formularz wyniku rekrutacji (rekruterzy/admini)" },
       { name: "=formularz-wyniki", desc: "Alias formularza wyniku rekrutacji (rekruterzy/admini)" },
@@ -2584,6 +2630,44 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       break;
     }
 
+    case "ticket-panel":
+    case "panel-ticket": {
+      if (!isAdmin(message)) { await message.reply("❌ Brak uprawnień. Panel ticketów może wysłać tylko administracja."); return; }
+      if (!message.guild) { await message.reply("❌ Panel ticketów działa tylko na serwerze Discord."); return; }
+
+      const panelEmbed = new EmbedBuilder()
+        .setTitle("🎫 PackSMP — Centrum ticketów")
+        .setColor(0x5865F2)
+        .setDescription(
+          "Potrzebujesz pomocy, chcesz złożyć podanie albo zgłosić sprawę?\n\n" +
+          "Wybierz odpowiednią kategorię z listy poniżej. Bot utworzy prywatny kanał dostępny dla Ciebie i obsługi."
+        )
+        .addFields(
+          { name: "🔒 Prywatność", value: "Każdy ticket widzi tylko autor oraz uprawniona obsługa.", inline: false },
+          { name: "📌 Zasady", value: "Opisz sprawę konkretnie i nie twórz kilku ticketów w tej samej sprawie.", inline: false },
+        )
+        .setFooter({ text: "PackSMP • Centrum pomocy" })
+        .setTimestamp();
+
+      const ticketSelect = new StringSelectMenuBuilder()
+        .setCustomId("ticket_panel_select")
+        .setPlaceholder("Wybierz rodzaj ticketu...")
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(TICKET_PANEL_OPTIONS.map((option) => ({
+          label: option.label,
+          value: option.value,
+          description: option.description,
+          emoji: option.emoji,
+        })));
+
+      await message.channel.send({
+        embeds: [panelEmbed],
+        components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(ticketSelect)],
+      });
+      await message.reply("✅ Panel ticketów został wysłany.");
+      break;
+    }
     case "formularz": {
       if (!isAdmin(message)) { await message.reply("❌ Brak uprawnień."); return; }
       const ch = message.channel as TextChannel;
@@ -2602,6 +2686,10 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
         // walka
         walka: "walka", klatka: "walka", klatki: "walka",
         wyzwanie: "walka", fight: "walka", pvp: "walka",
+        // wsparcie / event / inne
+        wsparcie: "wsparcie", support: "wsparcie", pomoc: "wsparcie",
+        event: "event", wydarzenie: "event",
+        inne: "inne", pozostale: "inne", "pozostałe": "inne",
       };
 
       let resolvedType: TicketType | null = argType ? (typeMap[argType] ?? null) : null;
@@ -2613,7 +2701,10 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
           `• \`rekrutacja\` \`recruit\` \`aplikacja\` — formularz rekrutacyjny\n` +
           `• \`sojusz\` \`wasal\` \`alliance\` — formularz sojuszu\n` +
           `• \`konkurs\` \`nagroda\` \`wygrana\` — formularz konkursowy\n` +
-          `• \`walka\` \`klatka\` \`klatki\` \`wyzwanie\` — formularz walki klatki\n\n` +
+          `• \`walka\` \`klatka\` \`klatki\` \`wyzwanie\` — formularz walki klatki\n` +
+          `• \`wsparcie\` \`support\` \`pomoc\` — zgłoszenie do wsparcia\n` +
+          `• \`event\` \`wydarzenie\` — zgłoszenie eventowe\n` +
+          `• \`inne\` — pozostała sprawa\n\n` +
           `Jeśli pominiesz typ, bot wykryje go automatycznie z nazwy kanału.`
         );
         return;
@@ -2852,7 +2943,132 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
   }
 }
 
+function normalizeTicketName(value: string): string {
+  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+const TICKET_TYPE_CATEGORY_ALIASES: Record<TicketType, string[]> = {
+  rekrutacja: ["rekrutacja", "rekrut", "podania"],
+  sojusz: ["sojusz", "sojusze", "alliance"],
+  konkurs: ["konkurs", "nagrody", "odbior nagrody", "odbiór nagrody"],
+  wsparcie: ["wsparcie", "support", "pomoc"],
+  event: ["event", "wydarzenia"],
+  walka: ["walka", "walki", "klatki", "klatka"],
+  inne: ["inne", "pozostale", "pozostałe", "inne sprawy"],
+};
+
+async function findTicketCategory(guild: any, ticketType?: TicketType): Promise<any | null> {
+  const envKeyByType: Partial<Record<TicketType, string>> = {
+    rekrutacja: "DISCORD_TICKET_REKRUTACJA_CATEGORY_ID", sojusz: "DISCORD_TICKET_SOJUSZ_CATEGORY_ID", konkurs: "DISCORD_TICKET_KONKURS_CATEGORY_ID",
+    wsparcie: "DISCORD_TICKET_WSPARCIE_CATEGORY_ID", event: "DISCORD_TICKET_EVENT_CATEGORY_ID", walka: "DISCORD_TICKET_WALKA_CATEGORY_ID", inne: "DISCORD_TICKET_INNE_CATEGORY_ID",
+  };
+  const configuredId = (ticketType && envKeyByType[ticketType] ? process.env[envKeyByType[ticketType]!] : undefined) ?? process.env["DISCORD_TICKET_CATEGORY_ID"];
+  if (configuredId) { const configured = await guild.channels.fetch(configuredId).catch(() => null); if (configured?.type === ChannelType.GuildCategory) return configured; }
+  const aliases = ticketType ? TICKET_TYPE_CATEGORY_ALIASES[ticketType] : TICKET_CATEGORY_NAME_HINTS;
+  return guild.channels.cache.find((channel: any) => channel?.type === ChannelType.GuildCategory && aliases.some((alias) => normalizeTicketName(channel.name ?? "").includes(normalizeTicketName(alias)))) ?? null;
+}
+
+async function getNextTicketNumber(guild: any, prefix: string): Promise<string> {
+  const pattern = new RegExp(`^${prefix}-(\d{3,})$`, "i");
+  let highest = 0;
+  for (const channel of guild.channels.cache.values()) { const match = pattern.exec(channel?.name ?? ""); if (match) highest = Math.max(highest, Number(match[1])); }
+  return String(highest + 1).padStart(3, "0");
+}
+
+function ticketStaffInteraction(interaction: any): boolean {
+  const member: any = interaction.member;
+  return Boolean(interaction.memberPermissions?.has?.(PermissionsBitField.Flags.Administrator) || interaction.memberPermissions?.has?.(PermissionsBitField.Flags.ManageGuild) || TICKET_STAFF_ROLE_IDS.some((roleId) => member?.roles?.cache?.has?.(roleId) || (Array.isArray(member?.roles) && member.roles.includes(roleId))));
+}
+
+async function findTicketStageCategory(guild: any, stage: TicketStage): Promise<any | null> {
+  const envKey: Record<TicketStage, string> = { important: "DISCORD_TICKET_IMPORTANT_CATEGORY_ID", stage1: "DISCORD_TICKET_STAGE1_CATEGORY_ID", stage2: "DISCORD_TICKET_STAGE2_CATEGORY_ID", stage3: "DISCORD_TICKET_STAGE3_CATEGORY_ID", archive: "DISCORD_TICKET_ARCHIVE_CATEGORY_ID" };
+  const configuredId = process.env[envKey[stage]];
+  if (configuredId) { const configured = await guild.channels.fetch(configuredId).catch(() => null); if (configured?.type === ChannelType.GuildCategory) return configured; }
+  const option = TICKET_STAGE_OPTIONS.find((candidate) => candidate.value === stage);
+  return guild.channels.cache.find((channel: any) => channel?.type === ChannelType.GuildCategory && option?.aliases.some((alias) => normalizeTicketName(channel.name ?? "").includes(normalizeTicketName(alias)))) ?? null;
+}
+
+function ticketControlComponents(): [ActionRowBuilder<ButtonBuilder>, ActionRowBuilder<StringSelectMenuBuilder>] {
+  const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId("ticket_claim").setLabel("🙋 Przejmij ticket").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("ticket_close").setLabel("🔒 Zamknij").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId("ticket_reopen").setLabel("🔓 Otwórz ponownie").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("ticket_archive").setLabel("🗄️ Archiwizuj").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId("ticket_delete").setLabel("🗑️ Usuń i zaloguj").setStyle(ButtonStyle.Danger),
+  );
+  const stages = new StringSelectMenuBuilder().setCustomId("ticket_stage_select").setPlaceholder("Rekruter: przenieś ticket do etapu...").addOptions(TICKET_STAGE_OPTIONS.map((stage) => ({ value: stage.value, label: stage.label, description: stage.description })));
+  return [buttons, new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(stages)];
+}
+
+async function ensureTicketControlPanel(channel: TextChannel, ticketType: TicketType, userId: string | null): Promise<void> {
+  const botId = client?.user?.id;
+  if (botId) {
+    const recent = await channel.messages.fetch({ limit: 25 }).catch(() => null);
+    if ([...(recent?.values?.() ?? [])].some((message: any) => message.author?.id === botId && message.content?.includes(TICKET_CONTROL_PANEL_MARKER))) return;
+  }
+  const form = TICKET_FORMS[ticketType];
+  const controlEmbed = new EmbedBuilder().setTitle("🎫 Zarządzanie ticketem").setColor(0x2B2D31).setDescription("Obsługa może przejąć ticket, zamknąć go, otworzyć ponownie, przenieść do etapu albo zarchiwizować. Usunięcie zapisze transkrypcję na kanale logów.").addFields(
+    { name: "📌 Typ", value: form.title, inline: true }, { name: "👤 Autor", value: userId ? `<@${userId}>` : "Nie wykryto", inline: true },
+    { name: "👥 Obsługa", value: TICKET_STAFF_ROLE_IDS.map((roleId) => `<@&${roleId}>`).join(" "), inline: false },
+  ).setFooter({ text: "PackSMP • Panel ticketu" }).setTimestamp();
+  await channel.send({ content: TICKET_CONTROL_PANEL_MARKER, embeds: [controlEmbed], components: ticketControlComponents() });
+}
+
+async function handleTicketPanelSelection(interaction: StringSelectMenuInteraction): Promise<void> {
+  const guild = interaction.guild;
+  const selected = interaction.values[0] as TicketType | undefined;
+  const option = TICKET_PANEL_OPTIONS.find((candidate) => candidate.value === selected);
+  if (!guild || !option) { await interaction.reply({ content: "❌ Nieprawidłowy rodzaj ticketu.", flags: MessageFlags.Ephemeral }); return; }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    const openTicket = guild.channels.cache.find((channel: any) => {
+      if (channel?.type !== ChannelType.GuildText) return false;
+      const ownerOverwrite = channel.permissionOverwrites?.cache?.get?.(interaction.user.id);
+      if (!ownerOverwrite || !ownerOverwrite.allow?.has?.(PermissionsBitField.Flags.ViewChannel)) return false;
+      return /^(rekrutacja|sojusz|konkurs|wsparcie|event|walka|inne)-\d{3,}$/i.test(channel.name ?? "");
+    });
+    if (openTicket) { await interaction.editReply({ content: `ℹ️ Masz już otwarty ticket: <#${openTicket.id}>` }); return; }
+    const ticketNumber = await getNextTicketNumber(guild, option.value);
+    const category = await findTicketCategory(guild, option.value);
+    const everyoneId = guild.roles.everyone.id;
+    const memberPermissions = [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles, PermissionsBitField.Flags.EmbedLinks];
+    const staffRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
+    const ticketChannel = await guild.channels.create({
+      name: `${option.value}-${ticketNumber}`, type: ChannelType.GuildText,
+      topic: `ticketType:${option.value} | owner:${interaction.user.id} | status:open`,
+      ...(category ? { parent: category.id } : {}),
+      permissionOverwrites: [{ id: everyoneId, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: interaction.user.id, allow: memberPermissions }, ...staffRoleIds.map((roleId) => ({ id: roleId, allow: memberPermissions }))],
+    });
+    const welcomeEmbed = new EmbedBuilder().setTitle(`${option.emoji} ${option.label}`).setColor(0x5865F2).setDescription(`Witaj <@${interaction.user.id}>!\n\nOpisz swoją sprawę konkretnie. Obsługa odpowie tutaj tak szybko, jak to możliwe.\n\n⚠️ Nie twórz kolejnych ticketów w tej samej sprawie.`).setFooter({ text: `PackSMP • ${option.label}` }).setTimestamp();
+    await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], allowedMentions: { users: [interaction.user.id] } });
+    await sendTicketFormToChannel(ticketChannel, option.value, interaction.user.id, new Set([interaction.user.id]), ticketChannel.name);
+    await interaction.editReply({ content: `✅ Ticket został utworzony: <#${ticketChannel.id}>` });
+    logger.info({ channelId: ticketChannel.id, userId: interaction.user.id, ticketType: option.value, ticketNumber }, "Ticket created from ticket panel");
+  } catch (err) {
+    logger.error({ err: String(err), userId: interaction.user.id, ticketType: selected }, "Ticket panel creation failed");
+    await interaction.editReply({ content: "❌ Nie udało się utworzyć ticketu. Sprawdź, czy bot ma uprawnienia **Zarządzanie kanałami** i **Zarządzanie uprawnieniami**." });
+  }
+}
+async function handleTicketStageSelection(interaction: StringSelectMenuInteraction): Promise<void> {
+  if (!ticketStaffInteraction(interaction)) { await interaction.reply({ content: "❌ Tylko rekruterzy i obsługa ticketów mogą zmieniać etap.", flags: MessageFlags.Ephemeral }); return; }
+  const stage = interaction.values[0] as TicketStage | undefined;
+  const option = TICKET_STAGE_OPTIONS.find((candidate) => candidate.value === stage);
+  const channel = interaction.channel as TextChannel | null;
+  if (!stage || !option || !interaction.guild || !channel?.isTextBased?.() || channel.isDMBased?.()) { await interaction.reply({ content: "❌ Nieprawidłowy etap lub kanał.", flags: MessageFlags.Ephemeral }); return; }
+  const category = await findTicketStageCategory(interaction.guild, stage);
+  if (!category) { await interaction.reply({ content: `❌ Nie znaleziono kategorii **${option.label}**. Utwórz ją albo ustaw odpowiednią zmienną środowiskową.`, flags: MessageFlags.Ephemeral }); return; }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await channel.setParent(category.id, { lockPermissions: false });
+  await channel.setTopic(((channel.topic ?? "").replace(/\| stage:[^|]+/i, "") + ` | stage:${stage}`).slice(0, 1024));
+  await channel.send({ embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle(`📂 Ticket przeniesiony: ${option.label}`).setDescription(`Ticket został przeniesiony przez <@${interaction.user.id}>.`).setTimestamp()] });
+  await interaction.editReply({ content: `✅ Ticket przeniesiono do kategorii **${option.label}**.` });
+}
 async function handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
+  if (interaction.customId === "ticket_stage_select") { await handleTicketStageSelection(interaction); return; }
+  if (interaction.customId === "ticket_panel_select") {
+    await handleTicketPanelSelection(interaction);
+    return;
+  }
   if (interaction.customId !== "proposal_category_select") return;
 
   const category = interaction.values[0];
@@ -2883,7 +3099,86 @@ async function handleSelectMenuInteraction(interaction: StringSelectMenuInteract
   await interaction.showModal(modal);
 }
 
+async function getTicketOwnerId(channel: TextChannel): Promise<string | null> {
+  const topicOwner = channel.topic?.match(/(?:^|\|)\s*owner:(\d+)/i)?.[1];
+  if (topicOwner) return topicOwner;
+  const info = await detectTicketChannel(channel).catch(() => null);
+  return info?.userId ?? null;
+}
+
+async function findTicketLogChannel(guild: any): Promise<TextChannel | null> {
+  const configuredId = process.env["DISCORD_TICKET_LOG_CHANNEL_ID"];
+  if (configuredId) { const configured = await guild.channels.fetch(configuredId).catch(() => null); if (configured?.isTextBased?.() && !configured.isDMBased?.()) return configured as TextChannel; }
+  return guild.channels.cache.find((candidate: any) => candidate?.isTextBased?.() && !candidate.isDMBased?.() && new Set(["logi-tickety", "tickety-logi"]).has(candidate.name?.toLowerCase?.())) as TextChannel | null ?? null;
+}
+
+async function sendTicketTranscript(channel: TextChannel, reason: string): Promise<boolean> {
+  const logChannel = await findTicketLogChannel(channel.guild);
+  if (!logChannel) return false;
+  const messages = await channel.messages.fetch({ limit: 100 });
+  const ordered = [...messages.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+  const lines = ordered.map((message) => {
+    const body = (message.content || "[embed/bez treści]").replace(/```/g, "'''");
+    const attachments = [...message.attachments.values()].map((attachment) => attachment.url).join(" ");
+    return `[${new Date(message.createdTimestamp).toISOString()}] ${message.author.tag} (${message.author.id}): ${body}${attachments ? ` | Załączniki: ${attachments}` : ""}`;
+  });
+  const header = new EmbedBuilder().setTitle("🧾 Transkrypcja usuniętego ticketu").setColor(0xED4245).addFields({ name: "Kanał", value: `#${channel.name}`, inline: true }, { name: "Usunięty przez", value: "Obsługa ticketów", inline: true }, { name: "Powód", value: reason.slice(0, 1024), inline: false }, { name: "Zakres", value: `Ostatnie ${ordered.length} wiadomości`, inline: false }).setTimestamp();
+  await logChannel.send({ embeds: [header] });
+  if (lines.length === 0) { await logChannel.send({ content: "[Ticket nie zawierał wiadomości tekstowych.]" }); return true; }
+  let chunk = "";
+  for (const line of lines) {
+    if ((chunk + line + "\n").length > 1800) { await logChannel.send({ content: "```text\n" + chunk + "```" }); chunk = ""; }
+    chunk += line + "\n";
+  }
+  if (chunk) await logChannel.send({ content: "```text\n" + chunk + "```" });
+  return true;
+}
+
+async function handleTicketLifecycleButton(interaction: ButtonInteraction): Promise<boolean> {
+  if (!["ticket_claim", "ticket_close", "ticket_reopen", "ticket_archive", "ticket_delete"].includes(interaction.customId)) return false;
+  if (!ticketStaffInteraction(interaction)) { await interaction.reply({ content: "❌ Tylko rekruterzy i wskazane role obsługi mogą zarządzać ticketem.", flags: MessageFlags.Ephemeral }); return true; }
+  const channel = interaction.channel as TextChannel | null;
+  if (!channel?.isTextBased?.() || channel.isDMBased?.()) { await interaction.reply({ content: "❌ Ta akcja działa tylko na kanale ticketu.", flags: MessageFlags.Ephemeral }); return true; }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const actor = `<@${interaction.user.id}>`;
+  try {
+    if (interaction.customId === "ticket_claim") {
+      const currentClaim = channel.topic?.match(/(?:^|\|)\s*claimedBy:(\d+)/i)?.[1];
+      if (currentClaim && currentClaim !== interaction.user.id) { await interaction.editReply({ content: `ℹ️ Ticket jest już przejęty przez <@${currentClaim}>. Inny rekruter nadal może w nim pisać.` }); return true; }
+      await channel.setTopic(((channel.topic ?? "").replace(/\|\s*claimedBy:\d+/i, "") + ` | claimedBy:${interaction.user.id}`).slice(0, 1024));
+      await channel.send({ embeds: [new EmbedBuilder().setColor(0x57F287).setTitle("🙋 Ticket przejęty").setDescription(`Ticket został przypisany do ${actor}. Pozostali rekruterzy nadal mają dostęp.`).setTimestamp()] });
+      await interaction.editReply({ content: "✅ Ticket został przypisany do Ciebie." }); return true;
+    }
+    const ownerId = await getTicketOwnerId(channel);
+    if (interaction.customId === "ticket_close" || interaction.customId === "ticket_reopen") {
+      const isReopen = interaction.customId === "ticket_reopen";
+      if (ownerId) await channel.permissionOverwrites.edit(ownerId, { ViewChannel: isReopen, SendMessages: isReopen, ReadMessageHistory: isReopen, AttachFiles: isReopen, EmbedLinks: isReopen });
+      await channel.setTopic(((channel.topic ?? "").replace(/\|\s*status:\w+/i, "") + ` | status:${isReopen ? "open" : "closed"}`).slice(0, 1024));
+      await channel.send({ embeds: [new EmbedBuilder().setColor(isReopen ? 0x57F287 : 0xFEE75C).setTitle(isReopen ? "🔓 Ticket otwarty ponownie" : "🔒 Ticket zamknięty").setDescription(`${isReopen ? "Ticket ponownie otwarto" : "Ticket zamknięto"} przez ${actor}.`).setTimestamp()] });
+      await interaction.editReply({ content: isReopen ? "✅ Ticket otwarto ponownie." : "✅ Ticket zamknięto. Można go ponownie otworzyć przyciskiem obsługi." }); return true;
+    }
+    if (interaction.customId === "ticket_archive") {
+      const archive = await findTicketStageCategory(channel.guild, "archive");
+      if (!archive) { await interaction.editReply({ content: "❌ Nie znaleziono kategorii Archiwum. Utwórz ją albo ustaw DISCORD_TICKET_ARCHIVE_CATEGORY_ID." }); return true; }
+      if (ownerId) await channel.permissionOverwrites.edit(ownerId, { ViewChannel: false, SendMessages: false });
+      await channel.setParent(archive.id, { lockPermissions: false });
+      await channel.setTopic(((channel.topic ?? "").replace(/\|\s*status:\w+/i, "") + " | status:archived").slice(0, 1024));
+      await channel.send({ embeds: [new EmbedBuilder().setColor(0x95A5A6).setTitle("🗄️ Ticket zarchiwizowany").setDescription(`Ticket zarchiwizował ${actor}.`).setTimestamp()] });
+      await interaction.editReply({ content: "✅ Ticket przeniesiono do archiwum i zamknięto dla autora." }); return true;
+    }
+    const logged = await sendTicketTranscript(channel, `Usunięcie przez ${interaction.user.tag}`);
+    if (!logged) { await interaction.editReply({ content: "❌ Nie usuwam ticketu: utwórz kanał logi-tickety lub tickety-logi, albo ustaw DISCORD_TICKET_LOG_CHANNEL_ID." }); return true; }
+    await interaction.editReply({ content: "✅ Transkrypcja zapisana. Usuwam ticket..." });
+    await channel.delete(`Ticket usunięty przez ${interaction.user.tag}`);
+  } catch (err) {
+    logger.warn({ err: String(err), channelId: channel.id, action: interaction.customId }, "Ticket lifecycle action failed");
+    await interaction.editReply({ content: "❌ Nie udało się wykonać tej operacji. Sprawdź uprawnienia bota." }).catch(() => {});
+  }
+  return true;
+}
 async function handleButtonInteraction(interaction: ButtonInteraction): Promise<void> {
+  if (await handleTicketLifecycleButton(interaction)) return;
+
   if (interaction.customId === "proposal_vote_yes" || interaction.customId === "proposal_vote_no") {
     if (!interaction.guild || interaction.message.author?.id !== interaction.client.user?.id) {
       await interaction.reply({ content: "❌ To nie jest aktywna propozycja PackOfDeath.", flags: MessageFlags.Ephemeral });
@@ -3276,8 +3571,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
     const hasPermission =
       member?.permissions?.has?.(PermissionsBitField.Flags.Administrator) ||
       member?.permissions?.has?.(PermissionsBitField.Flags.ManageGuild) ||
-      member?.roles?.cache?.has?.(RECRUIT_ROLE_ID) ||
-      (Array.isArray(member?.roles) && member.roles.includes(RECRUIT_ROLE_ID));
+      TICKET_STAFF_ROLE_IDS.some((roleId) => member?.roles?.cache?.has?.(roleId) || (Array.isArray(member?.roles) && member.roles.includes(roleId)));
 
     if (!hasPermission) {
       await interaction.reply({ content: "❌ Nie masz uprawnień do rozpatrywania zgłoszeń.", flags: MessageFlags.Ephemeral });
@@ -3287,7 +3581,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
     const isAccept = interaction.customId.startsWith("ra:");
     // Format: ra:<type>:<userId>  or  rr:<type>:<userId>
     const parts = interaction.customId.slice(3).split(":");  // strip "ra:" or "rr:"
-    const ticketType = parts[0] as "rekrutacja" | "sojusz" | "konkurs" | "walka" | undefined;
+    const ticketType = parts[0] as TicketType | undefined;
     const targetId = parts[1] ?? "unknown";
     const reviewer = (interaction.member as any)?.displayName ?? interaction.user.username;
 
