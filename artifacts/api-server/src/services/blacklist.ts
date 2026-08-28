@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { blacklistTable } from "@workspace/db";
-import { eq, or } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 
 export async function addToBlacklist(
   nick: string,
@@ -8,17 +8,18 @@ export async function addToBlacklist(
   addedBy: string,
   reason?: string,
 ): Promise<{ success: boolean; error?: string }> {
+  const normalizedNick = nick.trim();
   const existing = await db
     .select()
     .from(blacklistTable)
-    .where(or(eq(blacklistTable.nick, nick), eq(blacklistTable.discordId, discordId)))
+    .where(or(sql`lower(${blacklistTable.nick}) = lower(${normalizedNick})`, eq(blacklistTable.discordId, discordId)))
     .limit(1);
 
   if (existing[0]) {
     return { success: false, error: `\`${existing[0].nick}\` jest już na blackliście.` };
   }
 
-  await db.insert(blacklistTable).values({ nick, discordId, addedBy, reason });
+  await db.insert(blacklistTable).values({ nick: normalizedNick, discordId, addedBy, reason });
   return { success: true };
 }
 
@@ -28,7 +29,7 @@ export async function removeFromBlacklist(
   const existing = await db
     .select()
     .from(blacklistTable)
-    .where(eq(blacklistTable.nick, nick))
+    .where(sql`lower(${blacklistTable.nick}) = lower(${nick.trim()})`)
     .limit(1);
   if (!existing[0]) return false;
   await db.delete(blacklistTable).where(eq(blacklistTable.id, existing[0].id));
@@ -47,7 +48,7 @@ export async function clearBlacklist() {
 export async function isBlacklisted(nick: string, discordId?: string) {
   const conditions = discordId
     ? or(eq(blacklistTable.nick, nick), eq(blacklistTable.discordId, discordId))
-    : eq(blacklistTable.nick, nick);
+    : sql`lower(${blacklistTable.nick}) = lower(${nick.trim()})`;
   const result = await db.select().from(blacklistTable).where(conditions).limit(1);
   return result[0] ?? null;
 }
