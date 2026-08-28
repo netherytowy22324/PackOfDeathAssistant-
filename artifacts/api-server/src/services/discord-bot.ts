@@ -568,7 +568,12 @@ export async function startDiscordBot(): Promise<void> {
     const args = message.content.slice(1).trim().split(/\s+/);
     const cmd = args[0]?.toLowerCase() ?? "";
 
-    await handleDiscordCommand(message, cmd, args.slice(1));
+    try {
+      await handleDiscordCommand(message, cmd, args.slice(1));
+    } catch (err) {
+      logger.error({ err: String(err), command: cmd, userId: message.author.id }, "Discord command handler failed");
+      await message.reply("❌ Wystąpił błąd podczas wykonywania komendy. Spróbuj ponownie później.").catch(() => {});
+    }
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
@@ -598,8 +603,8 @@ export async function startDiscordBot(): Promise<void> {
   client.on(Events.ChannelCreate, async (channel) => {
     if (!channel.isTextBased()) return;
 
-    // Give the ticket bot a short head start without delaying handling by 4s.
-    await new Promise<void>((r) => setTimeout(r, 2000));
+    // Allow Discord to finish populating the channel without a visible multi-second delay.
+    await new Promise<void>((r) => setTimeout(r, 500));
 
     try {
       const info = await detectTicketChannel(channel as TextChannel);
