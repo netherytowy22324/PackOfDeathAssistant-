@@ -294,20 +294,10 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
   { value: "inne", label: "Coś innego", description: "Pozostała sprawa lub kontakt z ekipą", emoji: "📩" },
 ];
 
-const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
+const TICKET_CATEGORY_NAME = "tickety";
+const TICKET_CATEGORY_NAME_HINTS = ["tickety", "ticket", "zglos", "zgłos", "support", "pomoc"];
 const TICKET_STAFF_ROLE_IDS = ["1536764016574070884", "1532085181111079054"];
 const TICKET_CATEGORY_ID = "1534908193338036234";
-
-// Category routing for tickets created from the panel or detected in Discord.
-const TICKET_CATEGORY_BY_TYPE: Record<TicketType, string> = {
-  sojusz: "1542891724379127849",
-  rekrutacja: "1542892245752221796",
-  walka: "1542892293051256963",
-  konkurs: "1542892499385847848",
-  event: "1542892499385847848",
-  wsparcie: "1542892499385847848",
-  inne: "1542892499385847848",
-};
 
 async function getAvailableTicketStaffRoleIds(guild: any): Promise<string[]> {
   const configuredRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
@@ -623,7 +613,7 @@ export async function startDiscordBot(): Promise<void> {
     try {
       const info = await detectTicketChannel(channel as TextChannel);
       if (!info) return; // not a ticket channel
-      const ticketCategory = await findTicketCategory((channel as TextChannel).guild, info.ticketType);
+      const ticketCategory = await findTicketCategory((channel as TextChannel).guild);
       if (ticketCategory && (channel as TextChannel).parentId !== ticketCategory.id) {
         await (channel as TextChannel).setParent(ticketCategory.id, { lockPermissions: false });
       }
@@ -908,10 +898,10 @@ export async function backfillTicketForms(): Promise<void> {
         const info = await detectTicketChannel(channel);
         if (!info) continue;
 
-        const ticketCategory = await findTicketCategory(guild, info.ticketType);
+        const ticketCategory = await findTicketCategory(guild);
         if (ticketCategory && channel.parentId !== ticketCategory.id) {
           await channel.setParent(ticketCategory.id, { lockPermissions: false });
-          logger.info({ channelId: channel.id, categoryId: ticketCategory.id, ticketType: info.ticketType }, "Backfill: ticket moved to type category");
+          logger.info({ channelId: channel.id, categoryId: ticketCategory.id, ticketType: info.ticketType }, "Backfill: ticket moved to shared category");
         }
 
         await ensureRecruiterTicketAccess(channel);
@@ -3105,56 +3095,55 @@ function normalizeTicketName(value: string): string {
   return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-const TICKET_TYPE_CATEGORY_ALIASES: Record<TicketType, string[]> = {
-  rekrutacja: ["rekrutacja", "rekrut", "podania"],
-  sojusz: ["sojusz", "sojusze", "alliance"],
-  konkurs: ["konkurs", "nagrody", "odbior nagrody", "odbiór nagrody"],
-  wsparcie: ["wsparcie", "support", "pomoc"],
-  event: ["event", "wydarzenia"],
-  walka: ["walka", "walki", "klatki", "klatka"],
-  inne: ["inne", "pozostale", "pozostałe", "inne sprawy"],
-};
-
-async function findTicketCategory(guild: any, ticketType?: TicketType): Promise<any | null> {
-  const categoryId = ticketType ? TICKET_CATEGORY_BY_TYPE[ticketType] : TICKET_CATEGORY_ID;
+async function findTicketCategory(guild: any): Promise<any | null> {
+  const categoryId = TICKET_CATEGORY_ID;
   if (categoryId) {
     const configured = await guild.channels.fetch(categoryId).catch(() => null);
-    if (configured?.type === ChannelType.GuildCategory) return configured;
+    if (
+      configured?.type === ChannelType.GuildCategory &&
+      normalizeTicketName(configured.name ?? "") === normalizeTicketName(TICKET_CATEGORY_NAME)
+    ) {
+      return configured;
+    }
     if (configured) {
       logger.warn(
-        { categoryId, actualType: configured.type, ticketType },
-        "Configured ticket category ID does not point to a category",
+        { categoryId, actualType: configured.type, actualName: configured.name },
+        "Configured shared ticket category ID is not the tickety category",
       );
     }
   }
 
-  // Category IDs can change when a Discord server is rebuilt. Refresh the
-  // channel cache and fall back to a category whose name matches the ticket
-  // type instead of failing the whole ticket creation flow.
+  // The ID can change when a Discord server is rebuilt. Refresh only as a
+  // fallback, then use one shared category for every ticket type.
   try {
     await guild.channels.fetch();
   } catch (err) {
-    logger.warn({ err: String(err), ticketType }, "Could not refresh guild channels while finding ticket category");
+    logger.warn({ err: String(err) }, "Could not refresh guild channels while finding shared ticket category");
   }
 
   const categories = [...guild.channels.cache.values()].filter(
     (channel: any) => channel?.type === ChannelType.GuildCategory,
   );
-  const aliases = (ticketType
-    ? TICKET_TYPE_CATEGORY_ALIASES[ticketType]
-    : TICKET_CATEGORY_NAME_HINTS
-  ).map(normalizeTicketName);
+  const exactCategory = categories.find(
+    (channel: any) => normalizeTicketName(channel.name ?? "") === normalizeTicketName(TICKET_CATEGORY_NAME),
+  );
+  if (exactCategory) {
+    logger.info({ categoryId: exactCategory.id, categoryName: exactCategory.name }, "Using shared ticket category found by name");
+    return exactCategory;
+  }
+
+  const aliases = TICKET_CATEGORY_NAME_HINTS.map(normalizeTicketName);
   const category = categories.find((channel: any) => {
     const name = normalizeTicketName(channel.name ?? "");
     return aliases.some((alias) => name.includes(alias));
   });
 
   if (category) {
-    logger.info({ categoryId: category.id, categoryName: category.name, ticketType }, "Using ticket category found by name");
+    logger.info({ categoryId: category.id, categoryName: category.name }, "Using fallback shared ticket category found by name");
     return category;
   }
 
-  logger.warn({ categoryId, ticketType, aliases }, "Ticket category is unavailable");
+  logger.warn({ categoryId, categoryName: TICKET_CATEGORY_NAME, aliases }, "Shared ticket category is unavailable");
   return null;
 }
 
@@ -3301,12 +3290,6 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   let ticketChannel: TextChannel | null = null;
   try {
-    // A stale channel cache can make the duplicate-ticket check and counter
-    // operate on incomplete data. This is cheap compared with channel creation.
-    await guild.channels.fetch().catch((err: unknown) => {
-      logger.warn({ err: String(err), guildId: guild.id }, "Could not refresh guild channels before ticket creation");
-    });
-
     const openTicket = guild.channels.cache.find((channel: any) => {
       if (channel?.type !== ChannelType.GuildText) return false;
       const ownerOverwrite = channel.permissionOverwrites?.cache?.get?.(interaction.user.id);
@@ -3315,9 +3298,9 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
     });
     if (openTicket) { await interaction.editReply({ content: `ℹ️ Masz już otwarty ticket: <#${openTicket.id}>` }); return; }
     const ticketNumber = await getNextTicketNumber(guild, option.value);
-    const category = await findTicketCategory(guild, option.value);
+    const category = await findTicketCategory(guild);
     if (!category) {
-      await interaction.editReply({ content: `❌ Nie znaleziono wymaganej kategorii ticketów (${TICKET_CATEGORY_BY_TYPE[option.value] ?? TICKET_CATEGORY_ID}).` });
+      await interaction.editReply({ content: `❌ Nie znaleziono wspólnej kategorii **${TICKET_CATEGORY_NAME}**.` });
       return;
     }
     const botMember = guild.members.me ?? await guild.members.fetchMe();
