@@ -3117,10 +3117,44 @@ const TICKET_TYPE_CATEGORY_ALIASES: Record<TicketType, string[]> = {
 
 async function findTicketCategory(guild: any, ticketType?: TicketType): Promise<any | null> {
   const categoryId = ticketType ? TICKET_CATEGORY_BY_TYPE[ticketType] : TICKET_CATEGORY_ID;
-  const configured = await guild.channels.fetch(categoryId).catch(() => null);
-  if (configured?.type === ChannelType.GuildCategory) return configured;
+  if (categoryId) {
+    const configured = await guild.channels.fetch(categoryId).catch(() => null);
+    if (configured?.type === ChannelType.GuildCategory) return configured;
+    if (configured) {
+      logger.warn(
+        { categoryId, actualType: configured.type, ticketType },
+        "Configured ticket category ID does not point to a category",
+      );
+    }
+  }
 
-  logger.warn({ categoryId, ticketType }, "Ticket category is unavailable");
+  // Category IDs can change when a Discord server is rebuilt. Refresh the
+  // channel cache and fall back to a category whose name matches the ticket
+  // type instead of failing the whole ticket creation flow.
+  try {
+    await guild.channels.fetch();
+  } catch (err) {
+    logger.warn({ err: String(err), ticketType }, "Could not refresh guild channels while finding ticket category");
+  }
+
+  const categories = [...guild.channels.cache.values()].filter(
+    (channel: any) => channel?.type === ChannelType.GuildCategory,
+  );
+  const aliases = (ticketType
+    ? TICKET_TYPE_CATEGORY_ALIASES[ticketType]
+    : TICKET_CATEGORY_NAME_HINTS
+  ).map(normalizeTicketName);
+  const category = categories.find((channel: any) => {
+    const name = normalizeTicketName(channel.name ?? "");
+    return aliases.some((alias) => name.includes(alias));
+  });
+
+  if (category) {
+    logger.info({ categoryId: category.id, categoryName: category.name, ticketType }, "Using ticket category found by name");
+    return category;
+  }
+
+  logger.warn({ categoryId, ticketType, aliases }, "Ticket category is unavailable");
   return null;
 }
 
@@ -3265,7 +3299,14 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
   const option = TICKET_PANEL_OPTIONS.find((candidate) => candidate.value === selected);
   if (!guild || !option) { await interaction.reply({ content: "❌ Nieprawidłowy rodzaj ticketu.", flags: MessageFlags.Ephemeral }); return; }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  let ticketChannel: TextChannel | null = null;
   try {
+    // A stale channel cache can make the duplicate-ticket check and counter
+    // operate on incomplete data. This is cheap compared with channel creation.
+    await guild.channels.fetch().catch((err: unknown) => {
+      logger.warn({ err: String(err), guildId: guild.id }, "Could not refresh guild channels before ticket creation");
+    });
+
     const openTicket = guild.channels.cache.find((channel: any) => {
       if (channel?.type !== ChannelType.GuildText) return false;
       const ownerOverwrite = channel.permissionOverwrites?.cache?.get?.(interaction.user.id);
@@ -3279,6 +3320,20 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
       await interaction.editReply({ content: `❌ Nie znaleziono wymaganej kategorii ticketów (${TICKET_CATEGORY_BY_TYPE[option.value] ?? TICKET_CATEGORY_ID}).` });
       return;
     }
+    const botMember = guild.members.me ?? await guild.members.fetchMe();
+    if (!botMember?.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+      await interaction.editReply({
+        content: "❌ Bot nie ma uprawnienia **Zarządzanie kanałami** na tym serwerze.",
+      });
+      return;
+    }
+    const categoryPermissions = category.permissionsFor?.(botMember);
+    if (categoryPermissions && !categoryPermissions.has(PermissionsBitField.Flags.ViewChannel)) {
+      await interaction.editReply({
+        content: `❌ Bot nie ma dostępu do kategorii **${category.name}**. Nadaj mu **Wyświetlanie kanału** oraz **Zarządzanie kanałami**.`,
+      });
+      return;
+    }
     const everyoneId = guild.roles.everyone.id;
     const memberPermissions = [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles, PermissionsBitField.Flags.EmbedLinks];
     const ticketOwner = await guild.members.fetch(interaction.user.id).catch(() => null);
@@ -3286,20 +3341,29 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
       throw new Error(`Nie udało się pobrać autora ticketu ${interaction.user.id}`);
     }
     const staffRoleIds = await getAvailableTicketStaffRoleIds(guild);
-    const ticketChannel = await guild.channels.create({
+    ticketChannel = await guild.channels.create({
       name: `${option.value}-${ticketNumber}`, type: ChannelType.GuildText,
       topic: `ticketType:${option.value} | owner:${interaction.user.id} | status:open`,
       parent: category.id,
+      reason: `Utworzenie ticketu ${option.value} przez ${interaction.user.tag}`,
       permissionOverwrites: [{ id: everyoneId, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: interaction.user.id, allow: memberPermissions }, ...staffRoleIds.map((roleId) => ({ id: roleId, allow: memberPermissions }))],
-    });
+    }) as TextChannel;
     const welcomeEmbed = new EmbedBuilder().setTitle(`${option.emoji} ${option.label}`).setColor(0x5865F2).setDescription(`Witaj <@${interaction.user.id}>!\n\nOpisz swoją sprawę konkretnie. Obsługa odpowie tutaj tak szybko, jak to możliwe.\n\n⚠️ Nie twórz kolejnych ticketów w tej samej sprawie.`).setFooter({ text: `PackSMP • ${option.label}` }).setTimestamp();
     await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], allowedMentions: { users: [interaction.user.id] } });
     await sendTicketFormToChannel(ticketChannel, option.value, interaction.user.id, new Set([interaction.user.id]), ticketChannel.name);
     await interaction.editReply({ content: `✅ Ticket został utworzony: <#${ticketChannel.id}>` });
     logger.info({ channelId: ticketChannel.id, userId: interaction.user.id, ticketType: option.value, ticketNumber }, "Ticket created from ticket panel");
   } catch (err) {
-    logger.error({ err: String(err), userId: interaction.user.id, ticketType: selected }, "Ticket panel creation failed");
-    await interaction.editReply({ content: "❌ Nie udało się utworzyć ticketu. Sprawdź, czy bot ma uprawnienia **Zarządzanie kanałami** i **Zarządzanie uprawnieniami**." });
+    const error = err instanceof Error ? err.message : String(err);
+    logger.error(
+      { err: error, userId: interaction.user.id, ticketType: selected, channelId: ticketChannel?.id },
+      "Ticket panel creation failed",
+    );
+    await interaction.editReply({
+      content: ticketChannel
+        ? `⚠️ Kanał ticketu został utworzony: <#${ticketChannel.id}>, ale nie udało się dodać panelu/formularza. Sprawdź uprawnienia **Wysyłanie wiadomości**, **Osadzanie linków** i **Załączanie plików**.`
+        : `❌ Nie udało się utworzyć ticketu. ${error.slice(0, 500)}`,
+    });
   }
 }
 async function handleTicketStageSelection(interaction: StringSelectMenuInteraction): Promise<void> {
