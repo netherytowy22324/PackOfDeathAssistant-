@@ -290,7 +290,7 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
 ];
 
 const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
-const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1532085181111079054", "1536764016574070884", ...(process.env["DISCORD_TICKET_STAFF_ROLE_IDS"] ?? "").split(",").map((roleId) => roleId.trim()).filter(Boolean)])];
+const TICKET_STAFF_ROLE_IDS = ["1536764016574070884", "1532085181111079054"];
 
 async function getAvailableTicketStaffRoleIds(guild: any): Promise<string[]> {
   const configuredRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
