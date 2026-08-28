@@ -294,8 +294,8 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
   { value: "inne", label: "Coś innego", description: "Pozostała sprawa lub kontakt z ekipą", emoji: "📩" },
 ];
 
-const TICKET_CATEGORY_NAME = "Tickets";
-const TICKET_CATEGORY_NAME_HINTS = ["tickets", "ticket", "zglos", "zgłos", "support", "pomoc"];
+const TICKET_CATEGORY_NAME = "tickety";
+const TICKET_CATEGORY_NAME_HINTS = ["tickety", "ticket", "zglos", "zgłos", "support", "pomoc"];
 const TICKET_STAFF_ROLE_IDS = ["1536764016574070884", "1532085181111079054"];
 const TICKET_CATEGORY_ID = process.env["DISCORD_TICKET_CATEGORY_ID"]?.trim() || "";
 
@@ -3109,12 +3109,12 @@ async function findTicketCategory(guild: any): Promise<any | null> {
     (channel: any) => channel?.type === ChannelType.GuildCategory,
   );
 
-  // The category named "Tickets" is the source of truth for every ticket type.
+  // The category named "tickety" is the source of truth for every ticket type.
   const exactCategory = categories.find(
     (channel: any) => normalizeTicketName(channel.name ?? "") === normalizeTicketName(TICKET_CATEGORY_NAME),
   );
   if (exactCategory) {
-    logger.info({ categoryId: exactCategory.id, categoryName: exactCategory.name }, "Using shared ticket category named Tickets");
+    logger.info({ categoryId: exactCategory.id, categoryName: exactCategory.name }, "Using shared ticket category named tickety");
     return exactCategory;
   }
 
