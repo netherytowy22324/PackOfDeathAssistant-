@@ -294,10 +294,10 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
   { value: "inne", label: "Coś innego", description: "Pozostała sprawa lub kontakt z ekipą", emoji: "📩" },
 ];
 
-const TICKET_CATEGORY_NAME = "tickety";
-const TICKET_CATEGORY_NAME_HINTS = ["tickety", "ticket", "zglos", "zgłos", "support", "pomoc"];
+const TICKET_CATEGORY_NAME = "Tickets";
+const TICKET_CATEGORY_NAME_HINTS = ["tickets", "ticket", "zglos", "zgłos", "support", "pomoc"];
 const TICKET_STAFF_ROLE_IDS = ["1536764016574070884", "1532085181111079054"];
-const TICKET_CATEGORY_ID = process.env["DISCORD_TICKET_CATEGORY_ID"]?.trim() || "1542952031575089272";
+const TICKET_CATEGORY_ID = process.env["DISCORD_TICKET_CATEGORY_ID"]?.trim() || "";
 
 async function getAvailableTicketStaffRoleIds(guild: any): Promise<string[]> {
   const configuredRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
@@ -3096,25 +3096,9 @@ function normalizeTicketName(value: string): string {
 }
 
 async function findTicketCategory(guild: any): Promise<any | null> {
-  const categoryId = TICKET_CATEGORY_ID;
-  if (categoryId) {
-    const configured = await guild.channels.fetch(categoryId).catch(() => null);
-    if (
-      configured?.type === ChannelType.GuildCategory &&
-      normalizeTicketName(configured.name ?? "") === normalizeTicketName(TICKET_CATEGORY_NAME)
-    ) {
-      return configured;
-    }
-    if (configured) {
-      logger.warn(
-        { categoryId, actualType: configured.type, actualName: configured.name },
-        "Configured shared ticket category ID is not the tickety category",
-      );
-    }
-  }
+  if (!guild) return null;
 
-  // The ID can change when a Discord server is rebuilt. Refresh only as a
-  // fallback, then use one shared category for every ticket type.
+  const categoryId = TICKET_CATEGORY_ID;
   try {
     await guild.channels.fetch();
   } catch (err) {
@@ -3124,12 +3108,29 @@ async function findTicketCategory(guild: any): Promise<any | null> {
   const categories = [...guild.channels.cache.values()].filter(
     (channel: any) => channel?.type === ChannelType.GuildCategory,
   );
+
+  // The category named "Tickets" is the source of truth for every ticket type.
   const exactCategory = categories.find(
     (channel: any) => normalizeTicketName(channel.name ?? "") === normalizeTicketName(TICKET_CATEGORY_NAME),
   );
   if (exactCategory) {
-    logger.info({ categoryId: exactCategory.id, categoryName: exactCategory.name }, "Using shared ticket category found by name");
+    logger.info({ categoryId: exactCategory.id, categoryName: exactCategory.name }, "Using shared ticket category named Tickets");
     return exactCategory;
+  }
+
+  // Optional ID is only a fallback for servers where the category has not been named yet.
+  if (categoryId) {
+    const configured = await guild.channels.fetch(categoryId).catch(() => null);
+    if (configured?.type === ChannelType.GuildCategory) {
+      logger.info({ categoryId: configured.id, categoryName: configured.name }, "Using configured fallback ticket category");
+      return configured;
+    }
+    if (configured) {
+      logger.warn(
+        { categoryId, actualType: configured.type, actualName: configured.name },
+        "Configured ticket category ID is not a category",
+      );
+    }
   }
 
   const aliases = TICKET_CATEGORY_NAME_HINTS.map(normalizeTicketName);
