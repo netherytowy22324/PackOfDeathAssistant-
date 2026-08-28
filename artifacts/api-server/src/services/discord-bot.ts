@@ -290,7 +290,34 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
 ];
 
 const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
-const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1532085891638628362", "1532085181111079054", "1536764016574070884", ...(process.env["DISCORD_TICKET_STAFF_ROLE_IDS"] ?? "").split(",").map((roleId) => roleId.trim()).filter(Boolean)])];
+const TICKET_STAFF_ROLE_IDS = [...new Set([RECRUIT_ROLE_ID, MODERATOR_ROLE_ID, "1532085181111079054", "1536764016574070884", ...(process.env["DISCORD_TICKET_STAFF_ROLE_IDS"] ?? "").split(",").map((roleId) => roleId.trim()).filter(Boolean)])];
+
+async function getAvailableTicketStaffRoleIds(guild: any): Promise<string[]> {
+  const configuredRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
+  const availableRoleIds: string[] = [];
+  const missingRoleIds: string[] = [];
+
+  for (const roleId of configuredRoleIds) {
+    if (guild.roles.cache.has(roleId)) {
+      availableRoleIds.push(roleId);
+      continue;
+    }
+
+    try {
+      const role = await guild.roles.fetch(roleId);
+      if (role) availableRoleIds.push(role.id);
+      else missingRoleIds.push(roleId);
+    } catch {
+      missingRoleIds.push(roleId);
+    }
+  }
+
+  if (missingRoleIds.length > 0) {
+    logger.warn({ roleIds: missingRoleIds }, "Ignoring unavailable ticket staff roles");
+  }
+
+  return availableRoleIds;
+}
 type TicketStage = "important" | "stage1" | "stage2" | "stage3" | "archive";
 type TicketStageOption = { value: TicketStage; label: string; description: string; aliases: string[] };
 
@@ -783,7 +810,8 @@ async function detectTicketChannel(channel: TextChannel): Promise<TicketDetectio
 }
 
 async function ensureRecruiterTicketAccess(channel: TextChannel): Promise<void> {
-  for (const roleId of TICKET_STAFF_ROLE_IDS) {
+  const availableRoleIds = await getAvailableTicketStaffRoleIds(channel.guild);
+  for (const roleId of availableRoleIds {
     try {
       await channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true, EmbedLinks: true, AttachFiles: true, AddReactions: true });
       logger.info({ channelId: channel.id, roleId }, "Ticket staff role granted access");
@@ -3022,9 +3050,11 @@ async function ensureTicketControlPanel(channel: TextChannel, ticketType: Ticket
     if ([...(recent?.values?.() ?? [])].some((message: any) => message.author?.id === botId && message.content?.includes(TICKET_CONTROL_PANEL_MARKER))) return;
   }
   const form = TICKET_FORMS[ticketType];
+  const staffRoleIds = await getAvailableTicketStaffRoleIds(channel.guild);
+  const staffRolesLabel = staffRoleIds.length > 0 ? staffRoleIds.map((roleId) => `<@&${roleId}>`).join(" ") : "Nie skonfigurowano poprawnych ról obsługi";
   const controlEmbed = new EmbedBuilder().setTitle("🎫 Zarządzanie ticketem").setColor(0x2B2D31).setDescription("Obsługa może przejąć ticket, zamknąć go, otworzyć ponownie, przenieść do etapu albo zarchiwizować. Usunięcie zapisze transkrypcję na kanale logów.").addFields(
     { name: "📌 Typ", value: form.title, inline: true }, { name: "👤 Autor", value: userId ? `<@${userId}>` : "Nie wykryto", inline: true },
-    { name: "👥 Obsługa", value: TICKET_STAFF_ROLE_IDS.map((roleId) => `<@&${roleId}>`).join(" "), inline: false },
+    { name: "👥 Obsługa", value: staffRolesLabel, inline: false },
   ).setFooter({ text: "PackSMP • Panel ticketu" }).setTimestamp();
   await channel.send({ content: TICKET_CONTROL_PANEL_MARKER, embeds: [controlEmbed], components: ticketControlComponents() });
 }
@@ -3047,7 +3077,11 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
     const category = await findTicketCategory(guild, option.value);
     const everyoneId = guild.roles.everyone.id;
     const memberPermissions = [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles, PermissionsBitField.Flags.EmbedLinks];
-    const staffRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
+    const ticketOwner = await guild.members.fetch(interaction.user.id).catch(() => null);
+    if (!ticketOwner) {
+      throw new Error(`Nie udało się pobrać autora ticketu ${interaction.user.id}`);
+    }
+    const staffRoleIds = await getAvailableTicketStaffRoleIds(guild);
     const ticketChannel = await guild.channels.create({
       name: `${option.value}-${ticketNumber}`, type: ChannelType.GuildText,
       topic: `ticketType:${option.value} | owner:${interaction.user.id} | status:open`,
