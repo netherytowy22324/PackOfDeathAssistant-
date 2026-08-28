@@ -1398,6 +1398,7 @@ export const ADMIN_CMD_REGISTRY: CmdSection[] = [
       { name: "🧾 Logi ticketów", desc: "Przed usunięciem ticketu bot zapisuje pełną historię wiadomości na kanale logów." },
       { name: "=wynik-formularz", desc: "Wysyła formularz wyniku rekrutacji (rekruterzy/admini)" },
       { name: "=formularz-wyniki", desc: "Alias formularza wyniku rekrutacji (rekruterzy/admini)" },
+      { name: "=wynik-ostatniej-rekrutacji-wyslij-na <id_kanału> <id_wiadomości>", desc: "Przekazuje wynik rekrutacji na wskazany kanał" },
       { name: "=urlop-panel", desc: "Wysyła profesjonalny panel składania wniosku urlopowego" },
       { name: "=urlopy", desc: "Wyświetla wszystkie aktywne i zaplanowane urlopy" },
       { name: "=wynik-test-formularz", desc: "Wysyła przykładowy testowy wynik rekrutacji do podglądu wyglądu" },
@@ -1523,6 +1524,7 @@ const REGISTERED_DISCORD_COMMANDS = new Set(
 for (const alias of [
   "wynik-wyslij-na",
   "wynik-wyślij-na",
+  "wynik-ostatniej-rekrutacji-wyślij-na",
   "wynik-test-ostatni-wyslij-na",
   "usun-backup",
 ]) {
@@ -1533,6 +1535,8 @@ const TICKET_STAFF_COMMANDS = new Set([
   "rekruter",
   "wynik-formularz",
   "formularz-wyniki",
+  "wynik-ostatniej-rekrutacji-wyslij-na",
+  "wynik-ostatniej-rekrutacji-wyślij-na",
   "wstrzymaj-ticket",
   "wznow-ticket",
   "wznów-ticket",
@@ -1941,6 +1945,8 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       break;
     }
 
+    case "wynik-ostatniej-rekrutacji-wyslij-na":
+    case "wynik-ostatniej-rekrutacji-wyślij-na":
     case "wynik-wslij-na":
     case "wynik-wyslij-na":
     case "wynik-wyślij-na":
@@ -4319,24 +4325,33 @@ async function handleResultFormModalSubmit(interaction: ModalSubmitInteraction):
   const resultEmbed = buildRecruitmentResultEmbed(stored, false, guildIcon);
   const participant = stored.participant ?? "*(brak odpowiedzi)*";
 
-  let channel = interaction.channel as TextChannel | null;
-  if (!channel && interaction.channelId) {
-    try {
-      channel = (await interaction.client.channels.fetch(interaction.channelId)) as TextChannel;
-    } catch (err) {
-      logger.warn({ err: String(err), channelId: interaction.channelId }, "Could not fetch result form channel");
+  let channel: TextChannel | null = null;
+  try {
+    const fetchedChannel = await interaction.client.channels.fetch(channelId);
+    if (fetchedChannel?.isTextBased() && !fetchedChannel.isDMBased()) {
+      channel = fetchedChannel as TextChannel;
     }
+  } catch (err) {
+    logger.warn({ err: String(err), channelId }, "Could not fetch result form channel");
   }
 
-  if (channel?.isTextBased()) {
+  if (!channel) {
+    logger.error({ channelId }, "Result form channel unavailable");
+    await interaction.editReply({ content: "❌ Nie udało się znaleźć kanału formularza. Wynik nie został opublikowany." });
+    return;
+  }
+
+  try {
     const participantMentionIds = [...participant.matchAll(/<@!?(\d+)>/g)].map((match) => match[1]!);
     await channel.send({
       content: participantMentionIds.length > 0 ? participant : "📋 **Nowy wynik rekrutacji**",
       embeds: [resultEmbed],
       allowedMentions: participantMentionIds.length > 0 ? { users: participantMentionIds } : { parse: [] },
     });
-  } else {
-    logger.error({ channelId: interaction.channelId }, "Result form channel unavailable");
+  } catch (err) {
+    logger.error({ err: String(err), channelId }, "Failed to publish recruitment result");
+    await interaction.editReply({ content: "❌ Nie udało się opublikować wyniku na tym kanale. Sprawdź uprawnienia bota." });
+    return;
   }
 
   await interaction.editReply({
