@@ -33,6 +33,7 @@ import { getRconStatus } from "./rcon.js";
 const DISCORD_TOKEN = process.env["DISCORD_TOKEN"] ?? "";
 const GUILD_ID = process.env["DISCORD_GUILD_ID"] ?? "";
 const BLACKLIST_CHANNEL_ID = "1536657390781472838";
+const BLACKLIST_CHANNEL_NAME_HINTS = ["blacklista", "blacklist"];
 const RECRUIT_WAITING_CHANNEL_ID = "1534985918140649544";
 const RECRUITMENT_SUBMISSIONS_CHANNEL_ID = process.env["DISCORD_RECRUITMENT_CHANNEL_ID"] ?? "";
 const RECRUITMENT_SUBMISSIONS_CHANNEL_NAME = "podania-rekrutacyjne";
@@ -40,6 +41,7 @@ const RECRUIT_ROLE_ID = "1534975728263626853";
 const NATION_ROLE_ID = "1535006748920778852";
 const GUILD_BACKUP_CONFIG_KEY = "discord_guild_backup_v1";
 const PROPOSAL_CHANNEL_ID = "1537879120938279032";
+const PROPOSAL_CHANNEL_NAME_HINTS = ["propozycje", "propozycja", "suggestions", "suggestion"];
 const PROPOSAL_REFERENCE_MESSAGE_ID = "1521247374603976885";
 const PROPOSAL_VOTES_CONFIG_PREFIX = "discord_proposal_votes_v1:";
 const CHAT_CHANNEL_ID = process.env["DISCORD_CHAT_CHANNEL_ID"] ?? "";
@@ -904,6 +906,23 @@ export async function backfillTicketForms(): Promise<void> {
     backfillRunning = false;
   }
 }
+async function findTextChannelByIdOrName(guild: any, configuredId: string, nameHints: string[]): Promise<TextChannel | null> {
+  if (!guild) return null;
+
+  if (configuredId) {
+    const configured = await guild.channels.fetch(configuredId).catch(() => null);
+    if (configured?.isTextBased?.() && !configured.isDMBased?.()) return configured as TextChannel;
+  }
+
+  const normalizedHints = nameHints.map((hint) => hint.toLowerCase());
+  const named = guild.channels.cache.find((candidate: any) => {
+    if (!candidate?.isTextBased?.() || candidate.isDMBased?.()) return false;
+    const name = candidate.name?.toLowerCase?.() ?? "";
+    return normalizedHints.some((hint) => name === hint || name.includes(hint));
+  });
+  return (named as TextChannel | undefined) ?? null;
+}
+
 async function getRecruitmentSubmissionsChannel(guild: any): Promise<TextChannel | null> {
   if (!guild) return null;
 
@@ -1004,7 +1023,7 @@ async function sendTicketFormToChannel(
         .setTimestamp();
       await channel.send({ content: "@here", embeds: [warnEmbed] });
       try {
-        const blCh = await client!.channels.fetch(BLACKLIST_CHANNEL_ID);
+        const blCh = await findTextChannelByIdOrName(channel.guild, BLACKLIST_CHANNEL_ID, BLACKLIST_CHANNEL_NAME_HINTS);
         if (blCh?.isTextBased())
           await (blCh as TextChannel).send({ content: `⛔ Osoba z blacklisty otworzyła ticket: ${channel.toString()}`, embeds: [warnEmbed] });
       } catch { /* ignore */ }
@@ -2471,7 +2490,7 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       const before = await getBlacklist();
       await clearBlacklist();
       try {
-        const blCh = await client!.channels.fetch(BLACKLIST_CHANNEL_ID);
+        const blCh = await findTextChannelByIdOrName(message.guild, BLACKLIST_CHANNEL_ID, BLACKLIST_CHANNEL_NAME_HINTS);
         if (blCh?.isTextBased()) {
           await (blCh as any).send(
             `🗑️ **Blacklista została wyczyszczona** przez ${message.member?.displayName ?? message.author.username} — usunięto ${before.length} ${before.length === 1 ? "wpis" : "wpisów"}.`
@@ -2524,16 +2543,17 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
 
     case "blacklista-dodaj": {
       if (!isAdmin(message)) { await message.reply("❌ Brak uprawnień."); return; }
-      // Format: =blacklista-dodaj <discord_id> <@discord_nick> <powód> <nick_mc>
-      // args[0] = discord ID (raw number lub @mention)
-      // args[1] = @discord_tag (dla czytelności, ignorowane poza wyświetlaniem)
-      // args[2..n-1] = powód
-      // args[n] = nick minecraft (ostatni argument)
-      const targetId = args[0]?.replace(/[<@!>]/g, "");
-      const remaining = args.slice(2); // pomijamy discord tag
-      const mcNick = remaining[remaining.length - 1];
-      const reason = remaining.slice(0, -1).join(" ") || undefined;
-      if (!targetId || !mcNick) {
+      // Obsługiwane formaty:
+      // =blacklista-dodaj <discord_id> <@discord_nick> <powód> <nick_mc>
+      // =blacklista-dodaj <@discord_nick> <powód> <nick_mc>
+      const firstArg = args[0] ?? "";
+      const mentionedUser = message.mentions.users.first();
+      const targetId = mentionedUser?.id ?? firstArg.replace(/[<@!>]/g, "");
+      const hasSeparateDisplayMention = /^<@!?\d+>$/.test(args[1] ?? "") || (args[1]?.startsWith("@") ?? false);
+      const payload = args.slice(hasSeparateDisplayMention ? 2 : 1);
+      const mcNick = payload[payload.length - 1]?.trim();
+      const reason = payload.slice(0, -1).join(" ").trim() || undefined;
+      if (!/^\d{5,25}$/.test(targetId) || !mcNick) {
         await message.reply("❌ Użycie: `=blacklista-dodaj <discord_id> <@discord_nick> <powód> <nick_mc>`");
         return;
       }
@@ -2546,7 +2566,7 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       }
       // Powiadom na kanale blacklisty
       try {
-        const blCh = await client!.channels.fetch(BLACKLIST_CHANNEL_ID);
+        const blCh = await findTextChannelByIdOrName(message.guild, BLACKLIST_CHANNEL_ID, BLACKLIST_CHANNEL_NAME_HINTS);
         if (blCh?.isTextBased()) {
           const notifEmbed = new EmbedBuilder()
             .setTitle("🚫 Nowa osoba na blackliście")
@@ -2583,7 +2603,7 @@ async function handleDiscordCommand(message: Message, cmd: string, args: string[
       }
       // Powiadom na kanale blacklisty
       try {
-        const blCh = await client!.channels.fetch(BLACKLIST_CHANNEL_ID);
+        const blCh = await findTextChannelByIdOrName(message.guild, BLACKLIST_CHANNEL_ID, BLACKLIST_CHANNEL_NAME_HINTS);
         if (blCh?.isTextBased()) {
           const notifEmbed = new EmbedBuilder()
             .setTitle("✅ Osoba usunięta z blacklisty")
@@ -3014,7 +3034,7 @@ async function findTicketCategory(guild: any, _ticketType?: TicketType): Promise
 }
 
 async function getNextTicketNumber(guild: any, prefix: string): Promise<string> {
-  const pattern = new RegExp(`^${prefix}-(\d{3,})$`, "i");
+  const pattern = new RegExp(`^${prefix}-(\\d{3,})$`, "i");
   let highest = 0;
   for (const channel of guild.channels.cache.values()) { const match = pattern.exec(channel?.name ?? ""); if (match) highest = Math.max(highest, Number(match[1])); }
   return String(highest + 1).padStart(3, "0");
@@ -3077,6 +3097,10 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
     if (openTicket) { await interaction.editReply({ content: `ℹ️ Masz już otwarty ticket: <#${openTicket.id}>` }); return; }
     const ticketNumber = await getNextTicketNumber(guild, option.value);
     const category = await findTicketCategory(guild, option.value);
+    if (!category) {
+      await interaction.editReply({ content: `❌ Nie znaleziono wymaganej kategorii ticketów (${TICKET_CATEGORY_ID}).` });
+      return;
+    }
     const everyoneId = guild.roles.everyone.id;
     const memberPermissions = [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles, PermissionsBitField.Flags.EmbedLinks];
     const ticketOwner = await guild.members.fetch(interaction.user.id).catch(() => null);
@@ -3087,7 +3111,7 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
     const ticketChannel = await guild.channels.create({
       name: `${option.value}-${ticketNumber}`, type: ChannelType.GuildText,
       topic: `ticketType:${option.value} | owner:${interaction.user.id} | status:open`,
-      ...(category ? { parent: category.id } : {}),
+      parent: category.id,
       permissionOverwrites: [{ id: everyoneId, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: interaction.user.id, allow: memberPermissions }, ...staffRoleIds.map((roleId) => ({ id: roleId, allow: memberPermissions }))],
     });
     const welcomeEmbed = new EmbedBuilder().setTitle(`${option.emoji} ${option.label}`).setColor(0x5865F2).setDescription(`Witaj <@${interaction.user.id}>!\n\nOpisz swoją sprawę konkretnie. Obsługa odpowie tutaj tak szybko, jak to możliwe.\n\n⚠️ Nie twórz kolejnych ticketów w tej samej sprawie.`).setFooter({ text: `PackSMP • ${option.label}` }).setTimestamp();
@@ -3144,7 +3168,7 @@ async function handleSelectMenuInteraction(interaction: StringSelectMenuInteract
         .setPlaceholder("Opisz dokładnie swój pomysł...")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
-        .setMaxLength(1900),
+        .setMaxLength(1000),
     ),
   );
   await interaction.showModal(modal);
@@ -3922,7 +3946,7 @@ async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<v
     }
 
     try {
-      const target = await interaction.client.channels.fetch(PROPOSAL_CHANNEL_ID);
+      const target = interaction.guild ? await findTextChannelByIdOrName(interaction.guild, PROPOSAL_CHANNEL_ID, PROPOSAL_CHANNEL_NAME_HINTS) : null;
       if (!target?.isTextBased() || target.isDMBased()) {
         await interaction.editReply({ content: "❌ Nie znaleziono kanału propozycji." });
         return;
