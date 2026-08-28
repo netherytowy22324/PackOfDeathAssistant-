@@ -291,6 +291,7 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
 
 const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
 const TICKET_STAFF_ROLE_IDS = ["1536764016574070884", "1532085181111079054"];
+const TICKET_CATEGORY_ID = "1534908193338036234";
 
 async function getAvailableTicketStaffRoleIds(guild: any): Promise<string[]> {
   const configuredRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
@@ -601,6 +602,10 @@ export async function startDiscordBot(): Promise<void> {
     try {
       const info = await detectTicketChannel(channel as TextChannel);
       if (!info) return; // not a ticket channel
+      const ticketCategory = await findTicketCategory((channel as TextChannel).guild, info.ticketType);
+      if (ticketCategory && (channel as TextChannel).parentId !== ticketCategory.id) {
+        await (channel as TextChannel).setParent(ticketCategory.id, { lockPermissions: false });
+      }
       await ensureRecruiterTicketAccess(channel as TextChannel);
       await ensureTicketControlPanel(channel as TextChannel, info.ticketType, info.userId);
       logger.info({ channelId: channel.id, channelName: (channel as any).name, ticketType: info.ticketType }, "Ticket channel detected via ChannelCreate");
@@ -3000,15 +3005,12 @@ const TICKET_TYPE_CATEGORY_ALIASES: Record<TicketType, string[]> = {
   inne: ["inne", "pozostale", "pozostałe", "inne sprawy"],
 };
 
-async function findTicketCategory(guild: any, ticketType?: TicketType): Promise<any | null> {
-  const envKeyByType: Partial<Record<TicketType, string>> = {
-    rekrutacja: "DISCORD_TICKET_REKRUTACJA_CATEGORY_ID", sojusz: "DISCORD_TICKET_SOJUSZ_CATEGORY_ID", konkurs: "DISCORD_TICKET_KONKURS_CATEGORY_ID",
-    wsparcie: "DISCORD_TICKET_WSPARCIE_CATEGORY_ID", event: "DISCORD_TICKET_EVENT_CATEGORY_ID", walka: "DISCORD_TICKET_WALKA_CATEGORY_ID", inne: "DISCORD_TICKET_INNE_CATEGORY_ID",
-  };
-  const configuredId = (ticketType && envKeyByType[ticketType] ? process.env[envKeyByType[ticketType]!] : undefined) ?? process.env["DISCORD_TICKET_CATEGORY_ID"];
-  if (configuredId) { const configured = await guild.channels.fetch(configuredId).catch(() => null); if (configured?.type === ChannelType.GuildCategory) return configured; }
-  const aliases = ticketType ? TICKET_TYPE_CATEGORY_ALIASES[ticketType] : TICKET_CATEGORY_NAME_HINTS;
-  return guild.channels.cache.find((channel: any) => channel?.type === ChannelType.GuildCategory && aliases.some((alias) => normalizeTicketName(channel.name ?? "").includes(normalizeTicketName(alias)))) ?? null;
+async function findTicketCategory(guild: any, _ticketType?: TicketType): Promise<any | null> {
+  const configured = await guild.channels.fetch(TICKET_CATEGORY_ID).catch(() => null);
+  if (configured?.type === ChannelType.GuildCategory) return configured;
+
+  logger.warn({ categoryId: TICKET_CATEGORY_ID }, "Ticket category is unavailable");
+  return null;
 }
 
 async function getNextTicketNumber(guild: any, prefix: string): Promise<string> {
