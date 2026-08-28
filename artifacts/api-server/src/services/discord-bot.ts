@@ -811,7 +811,7 @@ async function detectTicketChannel(channel: TextChannel): Promise<TicketDetectio
 
 async function ensureRecruiterTicketAccess(channel: TextChannel): Promise<void> {
   const availableRoleIds = await getAvailableTicketStaffRoleIds(channel.guild);
-  for (const roleId of availableRoleIds {
+  for (const roleId of availableRoleIds) {
     try {
       await channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true, EmbedLinks: true, AttachFiles: true, AddReactions: true });
       logger.info({ channelId: channel.id, roleId }, "Ticket staff role granted access");
