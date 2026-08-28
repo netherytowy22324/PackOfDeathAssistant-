@@ -298,6 +298,17 @@ const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pom
 const TICKET_STAFF_ROLE_IDS = ["1536764016574070884", "1532085181111079054"];
 const TICKET_CATEGORY_ID = "1534908193338036234";
 
+// Category routing for tickets created from the panel or detected in Discord.
+const TICKET_CATEGORY_BY_TYPE: Record<TicketType, string> = {
+  sojusz: "1542891724379127849",
+  rekrutacja: "1542892245752221796",
+  walka: "1542892293051256963",
+  konkurs: "1542892499385847848",
+  event: "1542892499385847848",
+  wsparcie: "1542892499385847848",
+  inne: "1542892499385847848",
+};
+
 async function getAvailableTicketStaffRoleIds(guild: any): Promise<string[]> {
   const configuredRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
   const availableRoleIds: string[] = [];
@@ -896,6 +907,12 @@ export async function backfillTicketForms(): Promise<void> {
 
         const info = await detectTicketChannel(channel);
         if (!info) continue;
+
+        const ticketCategory = await findTicketCategory(guild, info.ticketType);
+        if (ticketCategory && channel.parentId !== ticketCategory.id) {
+          await channel.setParent(ticketCategory.id, { lockPermissions: false });
+          logger.info({ channelId: channel.id, categoryId: ticketCategory.id, ticketType: info.ticketType }, "Backfill: ticket moved to type category");
+        }
 
         await ensureRecruiterTicketAccess(channel);
         logger.info({ channelId: channel.id, channelName: channel.name, ticketType: info.ticketType, userId: info.userId }, "Backfill: sending form to missed ticket channel");
@@ -3098,11 +3115,12 @@ const TICKET_TYPE_CATEGORY_ALIASES: Record<TicketType, string[]> = {
   inne: ["inne", "pozostale", "pozostałe", "inne sprawy"],
 };
 
-async function findTicketCategory(guild: any, _ticketType?: TicketType): Promise<any | null> {
-  const configured = await guild.channels.fetch(TICKET_CATEGORY_ID).catch(() => null);
+async function findTicketCategory(guild: any, ticketType?: TicketType): Promise<any | null> {
+  const categoryId = ticketType ? TICKET_CATEGORY_BY_TYPE[ticketType] : TICKET_CATEGORY_ID;
+  const configured = await guild.channels.fetch(categoryId).catch(() => null);
   if (configured?.type === ChannelType.GuildCategory) return configured;
 
-  logger.warn({ categoryId: TICKET_CATEGORY_ID }, "Ticket category is unavailable");
+  logger.warn({ categoryId, ticketType }, "Ticket category is unavailable");
   return null;
 }
 
@@ -3258,7 +3276,7 @@ async function handleTicketPanelSelection(interaction: StringSelectMenuInteracti
     const ticketNumber = await getNextTicketNumber(guild, option.value);
     const category = await findTicketCategory(guild, option.value);
     if (!category) {
-      await interaction.editReply({ content: `❌ Nie znaleziono wymaganej kategorii ticketów (${TICKET_CATEGORY_ID}).` });
+      await interaction.editReply({ content: `❌ Nie znaleziono wymaganej kategorii ticketów (${TICKET_CATEGORY_BY_TYPE[option.value] ?? TICKET_CATEGORY_ID}).` });
       return;
     }
     const everyoneId = guild.roles.everyone.id;
