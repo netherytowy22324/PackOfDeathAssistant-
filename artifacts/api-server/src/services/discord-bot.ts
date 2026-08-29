@@ -944,6 +944,8 @@ async function getRecruitmentSubmissionsChannel(guild: any): Promise<TextChannel
   return (named as TextChannel | undefined) ?? null;
 }
 
+const ticketFormSendLocks = new Set<string>();
+
 // ── Shared ticket form sender ─────────────────────────────────────────────────
 // Used by both ChannelCreate auto-detection and the =formularz admin command.
 
@@ -954,131 +956,141 @@ async function sendTicketFormToChannel(
   mentioned: Set<string>,
   channelName: string,
 ): Promise<void> {
-  const form = TICKET_FORMS[ticketType];
-  const botId = client?.user?.id;  const recent = await channel.messages.fetch({ limit: 25 }).catch(() => null);  if (botId && [...(recent?.values?.() ?? [])].some((message: any) => message.author?.id === botId && (message.content?.includes(TICKET_FORM_MARKER) || message.content?.includes(RECRUITMENT_TEXT_FORM_MARKER)))) return;  await ensureTicketControlPanel(channel, ticketType, userId);
-  if (ticketType === "rekrutacja") {
-    const questions = form.pages
-      .flatMap((page) => page)
-      .map((field, index) =>
-        `${index + 1}. **${field.label}**\n   _${field.placeholder}_\n   Odpowiedź:`
-      )
-      .join("\n\n");
-
-    const recruitmentMessage = [
-      TICKET_FORM_MARKER,
-      RECRUITMENT_TEXT_FORM_MARKER,
-      "",
-      userId ? `👋 Witaj <@${userId}>!` : "👋 Witaj!",
-      "",
-      form.intro,
-      "",
-      "✍️ Skopiuj pytania, wpisz odpowiedzi po słowie **Odpowiedź:** i wyślij całość jako wiadomość na tym tickecie.",
-      "",
-      questions,
-    ].join("\n");
-
-    await channel.send({ content: recruitmentMessage });
-    logger.info({ channelId: channel.id, ticketType, userId, messageLength: recruitmentMessage.length }, "Plain-text recruitment form sent");
-  } else {
-    const questions = form.pages
-      .flatMap((page) => page)
-      .map((field, index) =>
-        `${index + 1}. **${field.label}**\n   _${field.placeholder}_\n   Odpowiedź:`
-      )
-      .join("\n\n");
-
-    const textForm = [
-      TICKET_FORM_MARKER,
-      ticketType === "rekrutacja" ? RECRUITMENT_TEXT_FORM_MARKER : `📌 **${form.title}**`,
-      "",
-      userId ? `👋 Witaj <@${userId}>!` : "👋 Witaj!",
-      "",
-      form.intro,
-      "",
-      "✍️ Skopiuj pytania, wpisz odpowiedzi po słowie **Odpowiedź:** i wyślij całość jako jedną wiadomość na tym tickecie.",
-      "",
-      questions,
-    ].join("\n");
-
-    await channel.send({ content: textForm });
-    logger.info({ channelId: channel.id, ticketType, userId, messageLength: textForm.length }, "Plain-text ticket form sent");
+  if (ticketFormSendLocks.has(channel.id)) {
+    logger.debug({ channelId: channel.id, ticketType }, "Ticket form send already in progress; skipping duplicate");
+    return;
   }
 
-  // ── Blacklist check (only for rekrutacja) ──────────────────────────────────
-  if (ticketType === "rekrutacja") {
-    const nameParts = channelName.split(/[-_]/);
-    const { getBlacklist } = await import("./blacklist.js");
-    const blacklist = await getBlacklist();
-
-    const sendBlWarn = async (blEntry: { nick: string; discordId: string; reason: string | null }, byId: boolean) => {
-      const warnEmbed = new EmbedBuilder()
-        .setTitle("⛔ UWAGA — Osoba na blackliście!")
-        .setColor(0xFF0000)
-        .setDescription(
-          byId
-            ? `<@${blEntry.discordId}> jest na **blackliście serwera** i złożył(a) ticket rekrutacyjny!`
-            : `Gracz \`${blEntry.nick}\` jest na **blackliście** i mógł złożyć ticket rekrutacyjny!`
+  ticketFormSendLocks.add(channel.id);
+  try {
+    const form = TICKET_FORMS[ticketType];
+    const botId = client?.user?.id;  const recent = await channel.messages.fetch({ limit: 25 }).catch(() => null);  if (botId && [...(recent?.values?.() ?? [])].some((message: any) => message.author?.id === botId && (message.content?.includes(TICKET_FORM_MARKER) || message.content?.includes(RECRUITMENT_TEXT_FORM_MARKER)))) return;  await ensureTicketControlPanel(channel, ticketType, userId);
+    if (ticketType === "rekrutacja") {
+      const questions = form.pages
+        .flatMap((page) => page)
+        .map((field, index) =>
+          `${index + 1}. **${field.label}**\n   _${field.placeholder}_\n   Odpowiedź:`
         )
-        .addFields(
-          { name: "Nick MC", value: `\`${blEntry.nick}\``, inline: true },
-          { name: "Discord", value: `<@${blEntry.discordId}>`, inline: true },
-          { name: "Powód", value: blEntry.reason ?? "Nie podano", inline: false },
-        )
-        .setFooter({ text: byId ? "PackSMP Blacklist System" : "PackSMP Blacklist System • wykryto po nazwie kanału" })
-        .setTimestamp();
-      await channel.send({ content: "@here", embeds: [warnEmbed] });
-      try {
-        const blCh = await findTextChannelByIdOrName(channel.guild, BLACKLIST_CHANNEL_ID, BLACKLIST_CHANNEL_NAME_HINTS);
-        if (blCh?.isTextBased())
-          await (blCh as TextChannel).send({ content: `⛔ Osoba z blacklisty otworzyła ticket: ${channel.toString()}`, embeds: [warnEmbed] });
-      } catch { /* ignore */ }
-    };
+        .join("\n\n");
 
-    let blacklisted = false;
-    for (const uid of mentioned) {
-      const hit = blacklist.find(e => e.discordId === uid);
-      if (hit) { await sendBlWarn(hit, true); blacklisted = true; break; }
+      const recruitmentMessage = [
+        TICKET_FORM_MARKER,
+        RECRUITMENT_TEXT_FORM_MARKER,
+        "",
+        userId ? `👋 Witaj <@${userId}>!` : "👋 Witaj!",
+        "",
+        form.intro,
+        "",
+        "✍️ Skopiuj pytania, wpisz odpowiedzi po słowie **Odpowiedź:** i wyślij całość jako wiadomość na tym tickecie.",
+        "",
+        questions,
+      ].join("\n");
+
+      await channel.send({ content: recruitmentMessage });
+      logger.info({ channelId: channel.id, ticketType, userId, messageLength: recruitmentMessage.length }, "Plain-text recruitment form sent");
+    } else {
+      const questions = form.pages
+        .flatMap((page) => page)
+        .map((field, index) =>
+          `${index + 1}. **${field.label}**\n   _${field.placeholder}_\n   Odpowiedź:`
+        )
+        .join("\n\n");
+
+      const textForm = [
+        TICKET_FORM_MARKER,
+        ticketType === "rekrutacja" ? RECRUITMENT_TEXT_FORM_MARKER : `📌 **${form.title}**`,
+        "",
+        userId ? `👋 Witaj <@${userId}>!` : "👋 Witaj!",
+        "",
+        form.intro,
+        "",
+        "✍️ Skopiuj pytania, wpisz odpowiedzi po słowie **Odpowiedź:** i wyślij całość jako jedną wiadomość na tym tickecie.",
+        "",
+        questions,
+      ].join("\n");
+
+      await channel.send({ content: textForm });
+      logger.info({ channelId: channel.id, ticketType, userId, messageLength: textForm.length }, "Plain-text ticket form sent");
     }
-    if (!blacklisted) {
-      for (const part of nameParts) {
-        if (part.length < 2) continue;
-        const hit = blacklist.find(e => e.nick.toLowerCase() === part.toLowerCase());
-        if (hit) { await sendBlWarn(hit, false); break; }
+
+    // ── Blacklist check (only for rekrutacja) ──────────────────────────────────
+    if (ticketType === "rekrutacja") {
+      const nameParts = channelName.split(/[-_]/);
+      const { getBlacklist } = await import("./blacklist.js");
+      const blacklist = await getBlacklist();
+
+      const sendBlWarn = async (blEntry: { nick: string; discordId: string; reason: string | null }, byId: boolean) => {
+        const warnEmbed = new EmbedBuilder()
+          .setTitle("⛔ UWAGA — Osoba na blackliście!")
+          .setColor(0xFF0000)
+          .setDescription(
+            byId
+              ? `<@${blEntry.discordId}> jest na **blackliście serwera** i złożył(a) ticket rekrutacyjny!`
+              : `Gracz \`${blEntry.nick}\` jest na **blackliście** i mógł złożyć ticket rekrutacyjny!`
+          )
+          .addFields(
+            { name: "Nick MC", value: `\`${blEntry.nick}\``, inline: true },
+            { name: "Discord", value: `<@${blEntry.discordId}>`, inline: true },
+            { name: "Powód", value: blEntry.reason ?? "Nie podano", inline: false },
+          )
+          .setFooter({ text: byId ? "PackSMP Blacklist System" : "PackSMP Blacklist System • wykryto po nazwie kanału" })
+          .setTimestamp();
+        await channel.send({ content: "@here", embeds: [warnEmbed] });
+        try {
+          const blCh = await findTextChannelByIdOrName(channel.guild, BLACKLIST_CHANNEL_ID, BLACKLIST_CHANNEL_NAME_HINTS);
+          if (blCh?.isTextBased())
+            await (blCh as TextChannel).send({ content: `⛔ Osoba z blacklisty otworzyła ticket: ${channel.toString()}`, embeds: [warnEmbed] });
+        } catch { /* ignore */ }
+      };
+
+      let blacklisted = false;
+      for (const uid of mentioned) {
+        const hit = blacklist.find(e => e.discordId === uid);
+        if (hit) { await sendBlWarn(hit, true); blacklisted = true; break; }
+      }
+      if (!blacklisted) {
+        for (const part of nameParts) {
+          if (part.length < 2) continue;
+          const hit = blacklist.find(e => e.nick.toLowerCase() === part.toLowerCase());
+          if (hit) { await sendBlWarn(hit, false); break; }
+        }
       }
     }
+
+    // ── Admin panel ─────────────────────────────────────────────────────────────
+    const adminLabels: Record<TicketType, { accept: string; reject: string }> = {
+      rekrutacja: { accept: "✅ Akceptuj rekrutację", reject: "❌ Odrzuć" },
+      sojusz:     { accept: "✅ Zaakceptuj sojusz",   reject: "❌ Odrzuć" },
+      konkurs:    { accept: "✅ Potwierdź wygraną",   reject: "❌ Odrzuć" },
+      walka:      { accept: "✅ Zatwierdź walkę",     reject: "❌ Odrzuć" },
+      wsparcie:   { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Zamknij zgłoszenie" },
+      event:      { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Odrzuć" },
+      inne:       { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Zamknij ticket" },
+    };
+    const lbl = adminLabels[ticketType];
+
+    const safeUid = userId ?? "unknown";
+
+    const adminEmbed = new EmbedBuilder()
+      .setTitle("🛡️ Panel administracyjny")
+      .setColor(0xFEE75C)
+      .setDescription(
+        `**Typ:** ${form.title}\n` +
+        `**Zgłaszający:** ${userId ? `<@${userId}>` : "*(nieznany)*"}`
+      )
+      .setFooter({ text: "PackSMP Admin Panel" })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`ra:${ticketType}:${safeUid}`).setLabel(lbl.accept).setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`rr:${ticketType}:${safeUid}`).setLabel(lbl.reject).setStyle(ButtonStyle.Danger),
+    );
+
+    await channel.send({ embeds: [adminEmbed], components: [row] });
+    logger.info({ channelId: channel.id, ticketType, userId }, "Ticket admin panel sent");
+  } finally {
+    ticketFormSendLocks.delete(channel.id);
   }
-
-  // ── Admin panel ─────────────────────────────────────────────────────────────
-  const adminLabels: Record<TicketType, { accept: string; reject: string }> = {
-    rekrutacja: { accept: "✅ Akceptuj rekrutację", reject: "❌ Odrzuć" },
-    sojusz:     { accept: "✅ Zaakceptuj sojusz",   reject: "❌ Odrzuć" },
-    konkurs:    { accept: "✅ Potwierdź wygraną",   reject: "❌ Odrzuć" },
-    walka:      { accept: "✅ Zatwierdź walkę",     reject: "❌ Odrzuć" },
-    wsparcie:   { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Zamknij zgłoszenie" },
-    event:      { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Odrzuć" },
-    inne:       { accept: "✅ Przyjęto zgłoszenie", reject: "❌ Zamknij ticket" },
-  };
-  const lbl = adminLabels[ticketType];
-
-  const safeUid = userId ?? "unknown";
-
-  const adminEmbed = new EmbedBuilder()
-    .setTitle("🛡️ Panel administracyjny")
-    .setColor(0xFEE75C)
-    .setDescription(
-      `**Typ:** ${form.title}\n` +
-      `**Zgłaszający:** ${userId ? `<@${userId}>` : "*(nieznany)*"}`
-    )
-    .setFooter({ text: "PackSMP Admin Panel" })
-    .setTimestamp();
-
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`ra:${ticketType}:${safeUid}`).setLabel(lbl.accept).setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`rr:${ticketType}:${safeUid}`).setLabel(lbl.reject).setStyle(ButtonStyle.Danger),
-  );
-
-  await channel.send({ embeds: [adminEmbed], components: [row] });
-  logger.info({ channelId: channel.id, ticketType, userId }, "Ticket admin panel sent");
 }
 
 function isAdmin(message: Message): boolean {
