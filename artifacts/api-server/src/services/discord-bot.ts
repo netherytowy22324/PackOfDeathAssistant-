@@ -21,7 +21,7 @@ import {
   Events,
 } from "discord.js";
 import { db, verifiedUsersTable, pendingFormAnswersTable, vacationRequestsTable, systemConfigTable } from "@workspace/db";
-import { asc, eq, gte, lt, lte, sql } from "drizzle-orm";
+import { asc, eq, gte, lt, lte } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { bridgeService } from "./bridge.js";
 import { generateVerificationCode, getVerificationStatusByDiscord, getVerificationStatusByMcNick, unlinkAccount, manualVerify, changeNick } from "./verification.js";
@@ -294,7 +294,6 @@ const TICKET_PANEL_OPTIONS: TicketPanelOption[] = [
 const TICKET_CATEGORY_NAME_HINTS = ["ticket", "zglos", "zgłos", "support", "pomoc", "rekrut"];
 const TICKET_STAFF_ROLE_IDS = ["1536764016574070884", "1532085181111079054"];
 const TICKET_CATEGORY_ID = "1534908193338036234";
-const TICKET_COUNTER_CONFIG_PREFIX = "discord_ticket_counter_v1:";
 
 async function getAvailableTicketStaffRoleIds(guild: any): Promise<string[]> {
   const configuredRoleIds = [...new Set(TICKET_STAFF_ROLE_IDS.filter(Boolean))];
@@ -3045,11 +3044,9 @@ async function findTicketCategory(guild: any, _ticketType?: TicketType): Promise
   return null;
 }
 
-function ticketCounterKey(guildId: string): string {
-  return `${TICKET_COUNTER_CONFIG_PREFIX}${guildId}`;
-}
+const ticketCounters = new Map<string, number>();
 
-async function getNextTicketNumber(guild: any): Promise<string> {
+function getNextTicketNumber(guild: any): string {
   const ticketPrefixes = "rekrutacja|sojusz|konkurs|wsparcie|event|walka|inne";
   const pattern = new RegExp(`^(?:${ticketPrefixes})-(\\d{3,})$`, "i");
   let highest = 0;
@@ -3058,21 +3055,9 @@ async function getNextTicketNumber(guild: any): Promise<string> {
     if (match) highest = Math.max(highest, Number(match[1]));
   }
 
-  const firstAvailableNumber = highest + 1;
-  const rows = await db
-    .insert(systemConfigTable)
-    .values({ key: ticketCounterKey(guild.id), value: String(firstAvailableNumber) })
-    .onConflictDoUpdate({
-      target: systemConfigTable.key,
-      set: {
-        value: sql`GREATEST(CAST(${systemConfigTable.value} AS INTEGER) + 1, ${firstAvailableNumber})::text`,
-        updatedAt: new Date(),
-      },
-    })
-    .returning({ value: systemConfigTable.value });
-
-  const nextNumber = Number(rows[0]?.value ?? firstAvailableNumber);
-  return String(Number.isFinite(nextNumber) && nextNumber > 0 ? nextNumber : firstAvailableNumber).padStart(3, "0");
+  const nextNumber = Math.max(highest, ticketCounters.get(guild.id) ?? 0) + 1;
+  ticketCounters.set(guild.id, nextNumber);
+  return String(nextNumber).padStart(3, "0");
 }
 
 function ticketStaffInteraction(interaction: any): boolean {
