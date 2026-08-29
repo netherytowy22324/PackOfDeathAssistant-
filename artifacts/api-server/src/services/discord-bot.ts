@@ -614,7 +614,6 @@ export async function startDiscordBot(): Promise<void> {
         await (channel as TextChannel).setParent(ticketCategory.id, { lockPermissions: false });
       }
       await ensureRecruiterTicketAccess(channel as TextChannel);
-      await ensureTicketControlPanel(channel as TextChannel, info.ticketType, info.userId);
       logger.info({ channelId: channel.id, channelName: (channel as any).name, ticketType: info.ticketType }, "Ticket channel detected via ChannelCreate");
       await sendTicketFormToChannel(channel as TextChannel, info.ticketType, info.userId, info.mentioned, (channel as any).name?.toLowerCase() ?? "");
     } catch (err) {
